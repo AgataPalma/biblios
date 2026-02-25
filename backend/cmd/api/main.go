@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/AgataPalma/biblios/internal/auth"
 	"github.com/AgataPalma/biblios/internal/config"
 	"github.com/AgataPalma/biblios/internal/database"
+	"github.com/AgataPalma/biblios/internal/users"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -70,12 +72,22 @@ func main() {
 	}
 	slog.Info("redis connected")
 
+	// Repositories and services
+	var userRepo *users.Repository = users.NewRepository(db)
+	var userService *users.Service = users.NewService(userRepo)
+	var authHandler *auth.Handler = auth.NewHandler(userService)
+
 	// Router
 	var r *chi.Mux = chi.NewRouter()
 	//    r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
+
+	// Routes
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Post("/auth/register", authHandler.Register)
+	})
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
