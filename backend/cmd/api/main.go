@@ -75,8 +75,7 @@ func main() {
 	// Repositories and services
 	var userRepo *users.Repository = users.NewRepository(db)
 	var userService *users.Service = users.NewService(userRepo)
-	var authHandler *auth.Handler = auth.NewHandler(userService)
-
+	var authHandler *auth.Handler = auth.NewHandler(userService, cfg.JWTSecret)
 	// Router
 	var r *chi.Mux = chi.NewRouter()
 	//    r := chi.NewRouter()
@@ -87,6 +86,7 @@ func main() {
 	// Routes
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/register", authHandler.Register)
+		r.Post("/auth/login", authHandler.Login)
 	})
 
 	// Health check

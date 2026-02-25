@@ -50,3 +50,26 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (User, erro
 
 	return user, nil
 }
+
+type LoginInput struct {
+	Email    string
+	Password string
+}
+
+func (s *Service) Login(ctx context.Context, input LoginInput) (User, error) {
+	var user User
+	var err error
+
+	user, err = s.repo.FindByEmail(ctx, input.Email)
+	if err != nil {
+		// Don't reveal whether email exists or not
+		return User{}, fmt.Errorf("invalid credentials")
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password))
+	if err != nil {
+		return User{}, fmt.Errorf("invalid credentials")
+	}
+
+	return user, nil
+}

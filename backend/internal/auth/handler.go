@@ -9,10 +9,11 @@ import (
 
 type Handler struct {
 	userService *users.Service
+	jwtSecret   string
 }
 
-func NewHandler(userService *users.Service) *Handler {
-	return &Handler{userService: userService}
+func NewHandler(userService *users.Service, jwtSecret string) *Handler {
+	return &Handler{userService: userService, jwtSecret: jwtSecret}
 }
 
 type registerRequest struct {
@@ -61,6 +62,48 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, registerResponse{User: user})
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type loginResponse struct {
+	Token string     `json:"token"`
+	User  users.User `json:"user"`
+}
+
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	var err error
+
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var input users.LoginInput = users.LoginInput{
+		Email:    req.Email,
+		Password: req.Password,
+	}
+
+	var user users.User
+	user, err = h.userService.Login(r.Context(), input)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+
+	var token string
+	token, err = GenerateToken(user.ID, user.IsAdmin, h.jwtSecret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, loginResponse{Token: token, User: user})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
