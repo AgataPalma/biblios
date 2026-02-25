@@ -6,9 +6,10 @@ import (
 	"github.com/AgataPalma/biblios/internal/auth"
 	"github.com/AgataPalma/biblios/internal/config"
 	"github.com/AgataPalma/biblios/internal/database"
+	"github.com/AgataPalma/biblios/internal/middleware"
 	"github.com/AgataPalma/biblios/internal/users"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"log/slog"
@@ -79,14 +80,21 @@ func main() {
 	// Router
 	var r *chi.Mux = chi.NewRouter()
 	//    r := chi.NewRouter()
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
-	r.Use(middleware.RequestID)
+	r.Use(chimiddleware.Logger)
+	r.Use(chimiddleware.Recoverer)
+	r.Use(chimiddleware.RequestID)
 
 	// Routes
 	r.Route("/api/v1", func(r chi.Router) {
+		// Public routes - no token needed
 		r.Post("/auth/register", authHandler.Register)
 		r.Post("/auth/login", authHandler.Login)
+
+		// Protected routes - token required
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Authenticate(cfg.JWTSecret))
+			r.Get("/auth/me", authHandler.Me)
+		})
 	})
 
 	// Health check

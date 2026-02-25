@@ -4,17 +4,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type Claims struct {
-	UserID  string `json:"user_id"`
-	IsAdmin bool   `json:"is_admin"`
-	jwt.RegisteredClaims
-}
-
 func GenerateToken(userID string, isAdmin bool, secret string) (string, error) {
-	var claims Claims = Claims{
+	var claims apictx.Claims = apictx.Claims{
 		UserID:  userID,
 		IsAdmin: isAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"github.com/AgataPalma/biblios/internal/apictx"
 	"net/http"
 
 	"github.com/AgataPalma/biblios/internal/users"
@@ -104,6 +105,22 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, loginResponse{Token: token, User: user})
+}
+
+func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
+	var claims apictx.Claims
+	var ok bool
+
+	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"user_id":  claims.UserID,
+		"is_admin": claims.IsAdmin,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
