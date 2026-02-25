@@ -37,6 +37,7 @@ services:
         REDIS_URL: redis://redis:6379
         JWT_SECRET: changeme
         PORT: "8080"
+        GOOGLE_BOOKS_API_KEY: "AIzaSyBuR7VMWV_u5P4f0zMI1e7oXmy949JagcM"
       volumes:
         - ./backend:/app
 volumes:

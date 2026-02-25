@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/AgataPalma/biblios/internal/auth"
+	"github.com/AgataPalma/biblios/internal/books"
 	"github.com/AgataPalma/biblios/internal/config"
 	"github.com/AgataPalma/biblios/internal/database"
+	"github.com/AgataPalma/biblios/internal/lookup"
 	"github.com/AgataPalma/biblios/internal/middleware"
 	"github.com/AgataPalma/biblios/internal/tokenstore"
 	"github.com/AgataPalma/biblios/internal/users"
@@ -82,6 +84,15 @@ func main() {
 	var userService *users.Service = users.NewService(userRepo)
 	var authHandler *auth.Handler = auth.NewHandler(userService, cfg.JWTSecret, tStore)
 
+	// Books
+	var bookRepo *books.Repository = books.NewRepository(db)
+	var bookService *books.Service = books.NewService(bookRepo, db)
+	var bookHandler *books.Handler = books.NewHandler(bookService)
+
+	// Lookup
+	var lookupService *lookup.Service = lookup.NewService(cfg.GoogleBooksAPIKey)
+	var lookupHandler *lookup.Handler = lookup.NewHandler(lookupService)
+
 	// Router
 	var r *chi.Mux = chi.NewRouter()
 	//    r := chi.NewRouter()
@@ -100,6 +111,8 @@ func main() {
 			r.Use(middleware.Authenticate(cfg.JWTSecret, tStore))
 			r.Get("/auth/me", authHandler.Me)
 			r.Post("/auth/logout", authHandler.Logout)
+			r.Post("/books", bookHandler.SubmitBook)
+			r.Get("/books/lookup", lookupHandler.Lookup)
 		})
 	})
 
