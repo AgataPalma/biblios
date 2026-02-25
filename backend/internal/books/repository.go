@@ -25,6 +25,53 @@ type txRepository struct {
 	db DB
 }
 
+func (r *Repository) FindEditionByISBN(ctx context.Context, isbn string) (*Edition, error) {
+	var edition Edition
+	var query string = `
+        SELECT id, book_id, format, isbn, asin, language, publisher,
+               edition, published_at, page_count, file_format,
+               duration_minutes, audio_format, status, deleted_at, created_at, updated_at
+        FROM book_editions
+        WHERE isbn = $1 AND deleted_at IS NULL
+        LIMIT 1
+    `
+
+	var err error = r.db.QueryRow(ctx, query, isbn).Scan(
+		&edition.ID, &edition.BookID, &edition.Format,
+		&edition.ISBN, &edition.ASIN, &edition.Language,
+		&edition.Publisher, &edition.Edition, &edition.PublishedAt,
+		&edition.PageCount, &edition.FileFormat, &edition.DurationMinutes,
+		&edition.AudioFormat, &edition.Status, &edition.DeletedAt,
+		&edition.CreatedAt, &edition.UpdatedAt,
+	)
+	if err != nil {
+		// Not found is not an error here
+		return nil, nil
+	}
+
+	return &edition, nil
+}
+
+func (r *Repository) FindBookByID(ctx context.Context, bookID string) (*Book, error) {
+	var book Book
+	var query string = `
+        SELECT id, title, description, cover_url, status, deleted_at, created_at, updated_at
+        FROM books
+        WHERE id = $1 AND deleted_at IS NULL
+    `
+
+	var err error = r.db.QueryRow(ctx, query, bookID).Scan(
+		&book.ID, &book.Title, &book.Description,
+		&book.CoverURL, &book.Status, &book.DeletedAt,
+		&book.CreatedAt, &book.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("book not found: %w", err)
+	}
+
+	return &book, nil
+}
+
 func (r *txRepository) FindOrCreateAuthor(ctx context.Context, name string, autoApprove bool) (Author, error) {
 	var author Author
 	var status string = "pending"
@@ -35,7 +82,7 @@ func (r *txRepository) FindOrCreateAuthor(ctx context.Context, name string, auto
 	var query string = `
         INSERT INTO authors (name, status)
         VALUES ($1, $2)
-        ON CONFLICT DO NOTHING
+        ON CONFLICT (name) DO NOTHING
         RETURNING id, name, status, deleted_at, created_at, updated_at
     `
 
@@ -200,11 +247,9 @@ func (r *txRepository) InsertCopy(ctx context.Context, editionID string, ownerID
 
 func (r *txRepository) LinkBookAuthor(ctx context.Context, bookID string, authorID string) error {
 	var query string = `
-    INSERT INTO authors (name, status)
-    VALUES ($1, $2)
-    ON CONFLICT (name) DO NOTHING
-    RETURNING id, name, status, deleted_at, created_at, updated_at
-`
+        INSERT INTO book_authors (book_id, author_id)
+        VALUES ($1, $2) ON CONFLICT DO NOTHING
+    `
 	var _, err = r.db.Exec(ctx, query, bookID, authorID)
 	if err != nil {
 		return fmt.Errorf("failed to link book author: %w", err)

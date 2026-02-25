@@ -113,6 +113,8 @@ func main() {
 			r.Post("/auth/logout", authHandler.Logout)
 			r.Post("/books", bookHandler.SubmitBook)
 			r.Get("/books/lookup", lookupHandler.Lookup)
+			r.Get("/books/check", bookHandler.CheckDuplicate)
+			r.Post("/books/copies", bookHandler.AddCopy)
 		})
 	})
 

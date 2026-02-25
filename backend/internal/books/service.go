@@ -50,6 +50,81 @@ type SubmitBookResult struct {
 	Copy       *Copy
 }
 
+type AddCopyInput struct {
+	EditionID string
+	Condition *string
+	UserID    string
+}
+
+type AddCopyResult struct {
+	Copy       Copy
+	Edition    Edition
+	Book       Book
+	Submission Submission
+}
+
+func (s *Service) AddCopyOfExistingEdition(ctx context.Context, input AddCopyInput) (AddCopyResult, error) {
+	var result AddCopyResult
+	var err error
+
+	// Check edition exists and is approved
+	var edition *Edition
+	edition, err = s.repo.FindEditionByISBN(ctx, input.EditionID)
+	if err != nil || edition == nil {
+		return AddCopyResult{}, fmt.Errorf("edition not found")
+	}
+
+	if edition.Status != "approved" {
+		return AddCopyResult{}, fmt.Errorf("edition is not yet approved")
+	}
+
+	// Get the book
+	var book *Book
+	book, err = s.repo.FindBookByID(ctx, edition.BookID)
+	if err != nil || book == nil {
+		return AddCopyResult{}, fmt.Errorf("book not found")
+	}
+
+	// Start transaction
+	var tx pgxTx
+	tx, err = s.db.Begin(ctx)
+	if err != nil {
+		return AddCopyResult{}, fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var repo *txRepository = s.repo.withDB(tx)
+
+	// Create copy
+	var copy Copy
+	copy, err = repo.InsertCopy(ctx, edition.ID, input.UserID, input.Condition)
+	if err != nil {
+		return AddCopyResult{}, err
+	}
+
+	// Create approved submission immediately since edition already exists and is approved
+	var submission Submission
+	submission, err = repo.InsertSubmissionApproved(ctx, input.UserID, book.ID, edition.ID, copy.ID)
+	if err != nil {
+		return AddCopyResult{}, err
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return AddCopyResult{}, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	result.Copy = copy
+	result.Edition = *edition
+	result.Book = *book
+	result.Submission = submission
+
+	return result, nil
+}
+
+func (s *Service) FindExistingEditionByISBN(ctx context.Context, isbn string) (*Edition, error) {
+	return s.repo.FindEditionByISBN(ctx, isbn)
+}
+
 func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (SubmitBookResult, error) {
 	var autoApprove bool = CanAutoApprove(input.UserRole)
 	var result SubmitBookResult
