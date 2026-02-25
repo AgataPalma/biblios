@@ -6,10 +6,11 @@ import (
 	"strings"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
+	"github.com/AgataPalma/biblios/internal/tokenstore"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func Authenticate(jwtSecret string) func(http.Handler) http.Handler {
+func Authenticate(jwtSecret string, store *tokenstore.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var authHeader string = r.Header.Get("Authorization")
@@ -35,6 +36,14 @@ func Authenticate(jwtSecret string) func(http.Handler) http.Handler {
 
 			if err != nil || !token.Valid {
 				http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+				return
+			}
+
+			// Check if token has been revoked
+			var revoked bool
+			revoked, err = store.IsRevoked(r.Context(), claims.ID)
+			if err != nil || revoked {
+				http.Error(w, `{"error":"token has been revoked"}`, http.StatusUnauthorized)
 				return
 			}
 

@@ -7,6 +7,7 @@ import (
 	"github.com/AgataPalma/biblios/internal/config"
 	"github.com/AgataPalma/biblios/internal/database"
 	"github.com/AgataPalma/biblios/internal/middleware"
+	"github.com/AgataPalma/biblios/internal/tokenstore"
 	"github.com/AgataPalma/biblios/internal/users"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -73,10 +74,14 @@ func main() {
 	}
 	slog.Info("redis connected")
 
+	// Token store
+	var tStore *tokenstore.Store = tokenstore.NewStore(rdb)
+
 	// Repositories and services
 	var userRepo *users.Repository = users.NewRepository(db)
 	var userService *users.Service = users.NewService(userRepo)
-	var authHandler *auth.Handler = auth.NewHandler(userService, cfg.JWTSecret)
+	var authHandler *auth.Handler = auth.NewHandler(userService, cfg.JWTSecret, tStore)
+
 	// Router
 	var r *chi.Mux = chi.NewRouter()
 	//    r := chi.NewRouter()
@@ -86,14 +91,15 @@ func main() {
 
 	// Routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Public routes - no token needed
+		// Public routes
 		r.Post("/auth/register", authHandler.Register)
 		r.Post("/auth/login", authHandler.Login)
 
-		// Protected routes - token required
+		// Protected routes
 		r.Group(func(r chi.Router) {
-			r.Use(middleware.Authenticate(cfg.JWTSecret))
+			r.Use(middleware.Authenticate(cfg.JWTSecret, tStore))
 			r.Get("/auth/me", authHandler.Me)
+			r.Post("/auth/logout", authHandler.Logout)
 		})
 	})
 

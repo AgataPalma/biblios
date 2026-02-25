@@ -3,7 +3,9 @@ package auth
 import (
 	"encoding/json"
 	"github.com/AgataPalma/biblios/internal/apictx"
+	"github.com/AgataPalma/biblios/internal/tokenstore"
 	"net/http"
+	"time"
 
 	"github.com/AgataPalma/biblios/internal/users"
 )
@@ -11,10 +13,15 @@ import (
 type Handler struct {
 	userService *users.Service
 	jwtSecret   string
+	tokenStore  *tokenstore.Store
 }
 
-func NewHandler(userService *users.Service, jwtSecret string) *Handler {
-	return &Handler{userService: userService, jwtSecret: jwtSecret}
+func NewHandler(userService *users.Service, jwtSecret string, tokenStore *tokenstore.Store) *Handler {
+	return &Handler{
+		userService: userService,
+		jwtSecret:   jwtSecret,
+		tokenStore:  tokenStore,
+	}
 }
 
 type registerRequest struct {
@@ -105,6 +112,26 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, loginResponse{Token: token, User: user})
+}
+
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	var claims apictx.Claims
+	var ok bool
+
+	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var remaining time.Duration = time.Until(claims.ExpiresAt.Time)
+	var err error = h.tokenStore.RevokeToken(r.Context(), claims.ID, remaining)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to logout")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "logged out successfully"})
 }
 
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
