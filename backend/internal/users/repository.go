@@ -17,11 +17,10 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 
 func (r *Repository) Insert(ctx context.Context, email string, username string, passwordHash string) (User, error) {
 	var user User
-
 	var query string = `
         INSERT INTO users (email, username, password_hash)
         VALUES ($1, $2, $3)
-        RETURNING id, email, username, password_hash, is_admin, deleted_at, created_at, updated_at
+        RETURNING id, email, username, password_hash, role, is_admin, deleted_at, created_at, updated_at
     `
 
 	var err error = r.db.QueryRow(ctx, query, email, username, passwordHash).Scan(
@@ -29,6 +28,7 @@ func (r *Repository) Insert(ctx context.Context, email string, username string, 
 		&user.Email,
 		&user.Username,
 		&user.PasswordHash,
+		&user.Role,
 		&user.IsAdmin,
 		&user.DeletedAt,
 		&user.CreatedAt,
@@ -56,7 +56,7 @@ func (r *Repository) ExistsByEmail(ctx context.Context, email string) (bool, err
 func (r *Repository) FindByEmail(ctx context.Context, email string) (User, error) {
 	var user User
 	var query string = `
-        SELECT id, email, username, password_hash, is_admin, deleted_at, created_at, updated_at
+        SELECT id, email, username, password_hash, role, is_admin, deleted_at, created_at, updated_at
         FROM users
         WHERE email = $1 AND deleted_at IS NULL
     `
@@ -66,6 +66,7 @@ func (r *Repository) FindByEmail(ctx context.Context, email string) (User, error
 		&user.Email,
 		&user.Username,
 		&user.PasswordHash,
+		&user.Role,
 		&user.IsAdmin,
 		&user.DeletedAt,
 		&user.CreatedAt,

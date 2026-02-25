@@ -105,7 +105,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var token string
-	token, err = GenerateToken(user.ID, user.IsAdmin, h.jwtSecret)
+	token, err = GenerateToken(user.ID, user.Role, h.jwtSecret)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
 		return
@@ -145,8 +145,8 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"user_id":  claims.UserID,
-		"is_admin": claims.IsAdmin,
+		"user_id": claims.UserID,
+		"role":    claims.Role,
 	})
 }
 

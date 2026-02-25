@@ -1,11 +1,11 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
-	"crypto/rand"
-	"encoding/hex"
 	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -22,7 +22,7 @@ func generateTokenID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func GenerateToken(userID string, isAdmin bool, secret string) (string, error) {
+func GenerateToken(userID string, role apictx.Role, secret string) (string, error) {
 	var tokenID string
 	var err error
 
@@ -32,8 +32,8 @@ func GenerateToken(userID string, isAdmin bool, secret string) (string, error) {
 	}
 
 	var claims apictx.Claims = apictx.Claims{
-		UserID:  userID,
-		IsAdmin: isAdmin,
+		UserID: userID,
+		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        tokenID,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
