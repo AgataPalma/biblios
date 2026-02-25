@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: biblios
+      POSTGRES_USER: biblios_user
+      POSTGRES_PASSWORD: biblios_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+  backend:
+      build: ./backend
+      ports:
+        - "8081:8080"
+      depends_on:
+        - postgres
+        - redis
+      environment:
+        DATABASE_URL: postgres://biblios_user:biblios_pass@postgres:5432/biblios
+        REDIS_URL: redis://redis:6379
+        JWT_SECRET: changeme
+        PORT: "8080"
+      volumes:
+        - ./backend:/app
+volumes:
+  postgres_data:
