@@ -1,22 +1,46 @@
-# Environment files - never commit these
-.env
-.env.prod
+# ─── IDE ──────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/dictionaries
+.idea/vcs.xml
+.idea/jsLibraryMappings.xml
+.idea/dataSources.xml
+.idea/dataSources.local.xml
+.idea/sqlDataSources.xml
+.idea/dynamic.xml
+.idea/uiDesigner.xml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# Go
-backend/tmp/
-backend/vendor/
-
-# Node (for later)
+# ─── Frontend ─────────────────────────────────────────
 frontend/node_modules/
 frontend/dist/
+frontend/.vite/
+frontend/.env.local
+frontend/.env.*.local
+frontend/coverage/
 
-# pgAdmin
-pgadmin_data/
+# ─── Backend ──────────────────────────────────────────
+backend/tmp/
+backend/*.exe
+backend/*.test
 
-# Docker
-docker-data/
+# ─── Environment ──────────────────────────────────────
+.env
+.env.local
+.env.prod
+*.env
 
-# IDE
-.idea/
-.vscode/
-*.iml
+# ─── Docker ───────────────────────────────────────────
+postgres-data/
+
+# ─── OS ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db

@@ -1,0 +1,102 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+:root {
+    --color-background: #f9fafb;
+    --color-surface: #ffffff;
+    --color-surface-alt: #f3f4f6;
+    --color-border: #e5e7eb;
+    --color-text: #111827;
+    --color-text-muted: #6b7280;
+    --color-primary: #2563eb;
+    --color-primary-hover: #1d4ed8;
+    --color-primary-text: #ffffff;
+    --color-accent: #3b82f6;
+    --color-error: #ef4444;
+    --color-success: #22c55e;
+    --color-shadow: rgba(0,0,0,0.1);
+    --border-radius: 8px;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+    --shadow-lg: 0 10px 25px rgba(0,0,0,0.1);
+    --transition: all 0.2s ease;
+    --input-bg: #ffffff;
+    --glass-bg: rgba(255,255,255,0.8);
+    --glass-blur: blur(10px);
+    --font-heading: 'Inter', sans-serif;
+    --font-body: 'Inter', sans-serif;
+}
+
+* {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+body {
+    color: var(--color-text);
+    font-family: var(--font-body);
+    background: transparent;
+    margin: 0;
+}
+
+#root {
+    background: transparent;
+    min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+}
+
+/* ─── Animations ─────────────────────────────────────── */
+@keyframes woodFlicker {
+    0%, 100% { opacity: 0.85; }
+    50% { opacity: 1; }
+}
+@keyframes nordicAurora {
+    0%, 100% { opacity: 0.7; transform: translateY(0px); }
+    50% { opacity: 1; transform: translateY(-8px); }
+}
+@keyframes steelSheen {
+    0% { transform: translateX(-10px); }
+    100% { transform: translateX(10px); }
+}
+@keyframes sheenMove {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+}
+@keyframes cyberPulse {
+    0%, 100% { opacity: 0.6; }
+    25% { opacity: 1; }
+    75% { opacity: 0.8; }
+}
+@keyframes sporeDrift {
+    0%, 100% { opacity: 0.8; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.02); }
+}
+@keyframes candleGlow {
+    0%, 100% { opacity: 0.85; }
+    30% { opacity: 1; }
+    60% { opacity: 0.9; }
+}
+@keyframes caustics {
+    0% { transform: translate(0px, 0px) rotate(0deg); opacity: 0.7; }
+    33% { transform: translate(15px, -10px) rotate(0.5deg); opacity: 1; }
+    66% { transform: translate(-10px, 8px) rotate(-0.3deg); opacity: 0.85; }
+    100% { transform: translate(0px, 0px) rotate(0deg); opacity: 0.7; }
+}
+@keyframes depthPulse {
+    0%, 100% { opacity: 0.8; }
+    50% { opacity: 1; }
+}
+@keyframes starTwinkle {
+    0%, 100% { opacity: 0.75; }
+    50% { opacity: 1; }
+}
+@keyframes nebulaShift {
+    0%, 100% { opacity: 0.7; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.03); }
+}

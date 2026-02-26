@@ -13,6 +13,7 @@ type User struct {
 	PasswordHash string      `json:"-"`
 	Role         apictx.Role `json:"role"`
 	IsAdmin      bool        `json:"-"`
+	Theme        string      `json:"theme"`
 	DeletedAt    *time.Time  `json:"deleted_at,omitempty"`
 	CreatedAt    time.Time   `json:"created_at"`
 	UpdatedAt    time.Time   `json:"updated_at"`

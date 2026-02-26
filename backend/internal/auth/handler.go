@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/AgataPalma/biblios/internal/tokenstore"
 	"net/http"
@@ -148,6 +149,39 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		"user_id": claims.UserID,
 		"role":    claims.Role,
 	})
+}
+
+type updateThemeRequest struct {
+	Theme string `json:"theme"`
+}
+
+func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
+	var claims apictx.Claims
+	var ok bool
+	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req updateThemeRequest
+	var err error = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil || req.Theme == "" {
+		writeError(w, http.StatusBadRequest, "theme is required")
+		return
+	}
+
+	err = h.userService.UpdateTheme(r.Context(), claims.UserID, req.Theme)
+	if err != nil {
+		if err.Error() == fmt.Sprintf("invalid theme: %s", req.Theme) {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to update theme")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "theme updated"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

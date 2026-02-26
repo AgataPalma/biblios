@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN theme VARCHAR(50) NOT NULL DEFAULT 'default-light';

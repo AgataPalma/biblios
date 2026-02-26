@@ -73,3 +73,7 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (User, error) {
 
 	return user, nil
 }
+
+func (s *Service) UpdateTheme(ctx context.Context, userID string, theme string) error {
+	return s.repo.UpdateTheme(ctx, userID, theme)
+}
