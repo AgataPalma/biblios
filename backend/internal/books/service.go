@@ -261,3 +261,43 @@ func (s *Service) ListBooks(ctx context.Context, page int, limit int) (ListBooks
 func (s *Service) GetBook(ctx context.Context, id string) (*Book, error) {
 	return s.repo.FindBookWithDetails(ctx, id)
 }
+
+type UpdateBookInput struct {
+	ID          string
+	Title       string
+	Description *string
+	CoverURL    *string
+}
+
+func (s *Service) UpdateBook(ctx context.Context, input UpdateBookInput) error {
+	if input.Title == "" {
+		return fmt.Errorf("title is required")
+	}
+	return s.repo.UpdateBook(ctx, input.ID, input.Title, input.Description, input.CoverURL)
+}
+
+func (s *Service) DeleteBook(ctx context.Context, id string) error {
+	return s.repo.DeleteBook(ctx, id)
+}
+
+func (s *Service) GetUserBooks(ctx context.Context, userID string, page int, limit int) (ListBooksResult, error) {
+	var bookList []Book
+	var total int
+	var err error
+
+	bookList, total, err = s.repo.FindUserBooks(ctx, userID, page, limit)
+	if err != nil {
+		return ListBooksResult{}, err
+	}
+
+	if bookList == nil {
+		bookList = []Book{}
+	}
+
+	return ListBooksResult{
+		Books: bookList,
+		Total: total,
+		Page:  page,
+		Limit: limit,
+	}, nil
+}

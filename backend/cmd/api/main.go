@@ -115,14 +115,26 @@ func main() {
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Authenticate(cfg.JWTSecret, tStore))
+
+			// Auth
 			r.Get("/auth/me", authHandler.Me)
 			r.Post("/auth/logout", authHandler.Logout)
-			r.Post("/books", bookHandler.SubmitBook)
+
+			// Books - all users
+			r.Get("/books", bookHandler.ListBooks)
 			r.Get("/books/lookup", lookupHandler.Lookup)
 			r.Get("/books/check", bookHandler.CheckDuplicate)
-			r.Post("/books/copies", bookHandler.AddCopy)
-			r.Get("/books", bookHandler.ListBooks)
 			r.Get("/books/{id}", bookHandler.GetBook)
+			r.Post("/books", bookHandler.SubmitBook)
+			r.Post("/books/copies", bookHandler.AddCopy)
+			r.Get("/users/me/books", bookHandler.GetMyBooks)
+
+			// Books - moderators and admins only
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireRole(apictx.RoleModerator, apictx.RoleAdmin))
+				r.Put("/books/{id}", bookHandler.UpdateBook)
+				r.Delete("/books/{id}", bookHandler.DeleteBook)
+			})
 		})
 		// Moderation routes - moderators and admins only
 		r.Group(func(r chi.Router) {

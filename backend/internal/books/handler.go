@@ -204,6 +204,100 @@ func (h *Handler) GetBook(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, book)
 }
 
+type updateBookRequest struct {
+	Title       string  `json:"title"`
+	Description *string `json:"description"`
+	CoverURL    *string `json:"cover_url"`
+}
+
+func (h *Handler) UpdateBook(w http.ResponseWriter, r *http.Request) {
+	var id string = chi.URLParam(r, "id")
+
+	var req updateBookRequest
+	var err error = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	err = h.service.UpdateBook(r.Context(), UpdateBookInput{
+		ID:          id,
+		Title:       req.Title,
+		Description: req.Description,
+		CoverURL:    req.CoverURL,
+	})
+	if err != nil {
+		if err.Error() == "title is required" {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		if err.Error() == "book not found" {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to update book")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "book updated"})
+}
+
+func (h *Handler) DeleteBook(w http.ResponseWriter, r *http.Request) {
+	var id string = chi.URLParam(r, "id")
+
+	var err error = h.service.DeleteBook(r.Context(), id)
+	if err != nil {
+		if err.Error() == "book not found" {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		if err.Error() == "cannot delete book with existing copies" {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to delete book")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "book deleted"})
+}
+
+func (h *Handler) GetMyBooks(w http.ResponseWriter, r *http.Request) {
+	var claims apictx.Claims
+	var ok bool
+	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var page int = 1
+	var limit int = 20
+	var err error
+
+	if p := r.URL.Query().Get("page"); p != "" {
+		page, err = strconv.Atoi(p)
+		if err != nil || page < 1 {
+			page = 1
+		}
+	}
+	if l := r.URL.Query().Get("limit"); l != "" {
+		limit, err = strconv.Atoi(l)
+		if err != nil || limit < 1 || limit > 100 {
+			limit = 20
+		}
+	}
+
+	var result ListBooksResult
+	result, err = h.service.GetUserBooks(r.Context(), claims.UserID, page, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get user books")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

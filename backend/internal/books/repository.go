@@ -689,3 +689,101 @@ func (r *Repository) FindBookWithDetails(ctx context.Context, id string) (*Book,
 
 	return &book, nil
 }
+
+func (r *Repository) UpdateBook(ctx context.Context, id string, title string, description *string, coverURL *string) error {
+	var query string = `
+        UPDATE books
+        SET title = $2, description = $3, cover_url = $4, updated_at = NOW()
+        WHERE id = $1 AND deleted_at IS NULL
+    `
+	var tag pgconn.CommandTag
+	var err error
+	tag, err = r.db.Exec(ctx, query, id, title, description, coverURL)
+	if err != nil {
+		return fmt.Errorf("failed to update book: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("book not found")
+	}
+	return nil
+}
+
+func (r *Repository) DeleteBook(ctx context.Context, id string) error {
+	// Only delete if no approved copies exist
+	var countQuery string = `
+        SELECT COUNT(*) FROM book_copies bc
+        JOIN book_editions be ON be.id = bc.edition_id
+        WHERE be.book_id = $1 AND bc.deleted_at IS NULL
+    `
+	var count int
+	var err error = r.db.QueryRow(ctx, countQuery, id).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check copies: %w", err)
+	}
+	if count > 0 {
+		return fmt.Errorf("cannot delete book with existing copies")
+	}
+
+	var query string = `
+        UPDATE books SET deleted_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND deleted_at IS NULL
+    `
+	var tag pgconn.CommandTag
+	tag, err = r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete book: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("book not found")
+	}
+	return nil
+}
+
+func (r *Repository) FindUserBooks(ctx context.Context, userID string, page int, limit int) ([]Book, int, error) {
+	var offset int = (page - 1) * limit
+
+	var countQuery string = `
+        SELECT COUNT(DISTINCT b.id)
+        FROM books b
+        JOIN book_editions be ON be.book_id = b.id
+        JOIN book_copies bc ON bc.edition_id = be.id
+        WHERE bc.owner_id = $1 AND bc.deleted_at IS NULL AND b.deleted_at IS NULL
+    `
+	var total int
+	var err error = r.db.QueryRow(ctx, countQuery, userID).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count user books: %w", err)
+	}
+
+	var query string = `
+        SELECT DISTINCT b.id, b.title, b.description, b.cover_url, b.status,
+               b.deleted_at, b.created_at, b.updated_at
+        FROM books b
+        JOIN book_editions be ON be.book_id = b.id
+        JOIN book_copies bc ON bc.edition_id = be.id
+        WHERE bc.owner_id = $1 AND bc.deleted_at IS NULL AND b.deleted_at IS NULL
+        ORDER BY b.title ASC
+        LIMIT $2 OFFSET $3
+    `
+	var rows pgx.Rows
+	rows, err = r.db.Query(ctx, query, userID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list user books: %w", err)
+	}
+	defer rows.Close()
+
+	var bookList []Book
+	for rows.Next() {
+		var b Book
+		err = rows.Scan(
+			&b.ID, &b.Title, &b.Description, &b.CoverURL,
+			&b.Status, &b.DeletedAt, &b.CreatedAt, &b.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan book: %w", err)
+		}
+		bookList = append(bookList, b)
+	}
+
+	return bookList, total, nil
+}
