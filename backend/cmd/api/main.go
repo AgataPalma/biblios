@@ -121,6 +121,8 @@ func main() {
 			r.Get("/books/lookup", lookupHandler.Lookup)
 			r.Get("/books/check", bookHandler.CheckDuplicate)
 			r.Post("/books/copies", bookHandler.AddCopy)
+			r.Get("/books", bookHandler.ListBooks)
+			r.Get("/books/{id}", bookHandler.GetBook)
 		})
 		// Moderation routes - moderators and admins only
 		r.Group(func(r chi.Router) {

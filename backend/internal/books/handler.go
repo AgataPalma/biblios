@@ -2,7 +2,9 @@ package books
 
 import (
 	"encoding/json"
+	"github.com/go-chi/chi/v5"
 	"net/http"
+	"strconv"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
 )
@@ -158,6 +160,48 @@ func (h *Handler) AddCopy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, result)
+}
+
+func (h *Handler) ListBooks(w http.ResponseWriter, r *http.Request) {
+	var page int = 1
+	var limit int = 20
+	var err error
+
+	if p := r.URL.Query().Get("page"); p != "" {
+		page, err = strconv.Atoi(p)
+		if err != nil || page < 1 {
+			page = 1
+		}
+	}
+	if l := r.URL.Query().Get("limit"); l != "" {
+		limit, err = strconv.Atoi(l)
+		if err != nil || limit < 1 || limit > 100 {
+			limit = 20
+		}
+	}
+
+	var result ListBooksResult
+	result, err = h.service.ListBooks(r.Context(), page, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list books")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) GetBook(w http.ResponseWriter, r *http.Request) {
+	var id string = chi.URLParam(r, "id")
+
+	var book *Book
+	var err error
+	book, err = h.service.GetBook(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "book not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, book)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

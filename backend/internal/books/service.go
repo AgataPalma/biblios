@@ -228,3 +228,36 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 
 	return result, nil
 }
+
+type ListBooksResult struct {
+	Books []Book `json:"books"`
+	Total int    `json:"total"`
+	Page  int    `json:"page"`
+	Limit int    `json:"limit"`
+}
+
+func (s *Service) ListBooks(ctx context.Context, page int, limit int) (ListBooksResult, error) {
+	var bookList []Book
+	var total int
+	var err error
+
+	bookList, total, err = s.repo.ListApprovedBooks(ctx, page, limit)
+	if err != nil {
+		return ListBooksResult{}, err
+	}
+
+	if bookList == nil {
+		bookList = []Book{}
+	}
+
+	return ListBooksResult{
+		Books: bookList,
+		Total: total,
+		Page:  page,
+		Limit: limit,
+	}, nil
+}
+
+func (s *Service) GetBook(ctx context.Context, id string) (*Book, error) {
+	return s.repo.FindBookWithDetails(ctx, id)
+}

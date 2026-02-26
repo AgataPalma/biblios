@@ -536,3 +536,156 @@ func (r *txRepository) InsertSubmissionApproved(ctx context.Context, userID stri
 
 	return submission, nil
 }
+
+func (r *Repository) ListApprovedBooks(ctx context.Context, page int, limit int) ([]Book, int, error) {
+	var offset int = (page - 1) * limit
+
+	var countQuery string = `
+        SELECT COUNT(*) FROM books
+        WHERE status = 'approved' AND deleted_at IS NULL
+    `
+	var total int
+	var err error = r.db.QueryRow(ctx, countQuery).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count books: %w", err)
+	}
+
+	var query string = `
+        SELECT id, title, description, cover_url, status, deleted_at, created_at, updated_at
+        FROM books
+        WHERE status = 'approved' AND deleted_at IS NULL
+        ORDER BY title ASC
+        LIMIT $1 OFFSET $2
+    `
+
+	var rows pgx.Rows
+	rows, err = r.db.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list books: %w", err)
+	}
+	defer rows.Close()
+
+	var bookList []Book
+	for rows.Next() {
+		var b Book
+		err = rows.Scan(
+			&b.ID, &b.Title, &b.Description, &b.CoverURL,
+			&b.Status, &b.DeletedAt, &b.CreatedAt, &b.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan book: %w", err)
+		}
+		bookList = append(bookList, b)
+	}
+
+	return bookList, total, nil
+}
+
+func (r *Repository) FindBookWithDetails(ctx context.Context, id string) (*Book, error) {
+	// Get book
+	var book Book
+	var query string = `
+        SELECT id, title, description, cover_url, status, deleted_at, created_at, updated_at
+        FROM books
+        WHERE id = $1 AND deleted_at IS NULL
+    `
+	var err error = r.db.QueryRow(ctx, query, id).Scan(
+		&book.ID, &book.Title, &book.Description, &book.CoverURL,
+		&book.Status, &book.DeletedAt, &book.CreatedAt, &book.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("book not found: %w", err)
+	}
+
+	// Get authors
+	var authorQuery string = `
+        SELECT a.id, a.name, a.status, a.deleted_at, a.created_at, a.updated_at
+        FROM authors a
+        JOIN book_authors ba ON ba.author_id = a.id
+        WHERE ba.book_id = $1 AND a.deleted_at IS NULL
+    `
+	var authorRows pgx.Rows
+	authorRows, err = r.db.Query(ctx, authorQuery, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get authors: %w", err)
+	}
+	defer authorRows.Close()
+
+	for authorRows.Next() {
+		var a Author
+		err = authorRows.Scan(
+			&a.ID, &a.Name, &a.Status,
+			&a.DeletedAt, &a.CreatedAt, &a.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan author: %w", err)
+		}
+		book.Authors = append(book.Authors, a)
+	}
+
+	// Get genres
+	var genreQuery string = `
+        SELECT g.id, g.name, g.status, g.created_at
+        FROM genres g
+        JOIN book_genres bg ON bg.genre_id = g.id
+        WHERE bg.book_id = $1
+    `
+	var genreRows pgx.Rows
+	genreRows, err = r.db.Query(ctx, genreQuery, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get genres: %w", err)
+	}
+	defer genreRows.Close()
+
+	for genreRows.Next() {
+		var g Genre
+		err = genreRows.Scan(&g.ID, &g.Name, &g.Status, &g.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan genre: %w", err)
+		}
+		book.Genres = append(book.Genres, g)
+	}
+
+	// Get editions
+	var editionQuery string = `
+        SELECT id, book_id, format, isbn, asin, language, publisher,
+               edition, published_at, page_count, file_format,
+               duration_minutes, audio_format, status, deleted_at, created_at, updated_at
+        FROM book_editions
+        WHERE book_id = $1 AND deleted_at IS NULL
+        ORDER BY created_at ASC
+    `
+	var editionRows pgx.Rows
+	editionRows, err = r.db.Query(ctx, editionQuery, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get editions: %w", err)
+	}
+	defer editionRows.Close()
+
+	for editionRows.Next() {
+		var e Edition
+		err = editionRows.Scan(
+			&e.ID, &e.BookID, &e.Format, &e.ISBN, &e.ASIN,
+			&e.Language, &e.Publisher, &e.Edition, &e.PublishedAt,
+			&e.PageCount, &e.FileFormat, &e.DurationMinutes,
+			&e.AudioFormat, &e.Status, &e.DeletedAt,
+			&e.CreatedAt, &e.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan edition: %w", err)
+		}
+		book.Editions = append(book.Editions, e)
+	}
+
+	if book.Authors == nil {
+		book.Authors = []Author{}
+	}
+	if book.Genres == nil {
+		book.Genres = []Genre{}
+	}
+	if book.Editions == nil {
+		book.Editions = []Edition{}
+	}
+
+	return &book, nil
+}
