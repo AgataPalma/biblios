@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,6 +25,37 @@ func (r *Repository) withDB(db DB) *txRepository {
 // txRepository works with either a pool or a transaction
 type txRepository struct {
 	db DB
+}
+
+func (r *Repository) InsertCopyDirect(ctx context.Context, editionID string, ownerID string) (Copy, error) {
+	var copy Copy
+	var query string = `
+        INSERT INTO book_copies (edition_id, owner_id)
+        VALUES ($1, $2)
+        RETURNING id, edition_id, owner_id, condition, deleted_at, created_at, updated_at
+    `
+	var err error = r.db.QueryRow(ctx, query, editionID, ownerID).Scan(
+		&copy.ID, &copy.EditionID, &copy.OwnerID, &copy.Condition,
+		&copy.DeletedAt, &copy.CreatedAt, &copy.UpdatedAt,
+	)
+	if err != nil {
+		return Copy{}, fmt.Errorf("failed to insert copy: %w", err)
+	}
+	return copy, nil
+}
+
+func (r *Repository) ApproveSubmissionWithCopy(ctx context.Context, id string, reviewerID string, copyID string) error {
+	var query string = `
+        UPDATE submissions
+        SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(),
+            copy_id = $3, updated_at = NOW()
+        WHERE id = $1
+    `
+	var _, err = r.db.Exec(ctx, query, id, reviewerID, copyID)
+	if err != nil {
+		return fmt.Errorf("failed to approve submission with copy: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) FindEditionByISBN(ctx context.Context, isbn string) (*Edition, error) {
@@ -70,6 +103,189 @@ func (r *Repository) FindBookByID(ctx context.Context, bookID string) (*Book, er
 	}
 
 	return &book, nil
+}
+
+func (r *Repository) ListPendingSubmissions(ctx context.Context, page int, limit int) ([]Submission, int, error) {
+	var offset int = (page - 1) * limit
+
+	var countQuery string = `
+        SELECT COUNT(*) FROM submissions
+        WHERE status = 'pending' AND deleted_at IS NULL
+    `
+	var total int
+	var err error = r.db.QueryRow(ctx, countQuery).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count submissions: %w", err)
+	}
+
+	var query string = `
+        SELECT id, submitted_by, status, rejection_reason, reviewed_by,
+               reviewed_at, book_id, edition_id, copy_id, deleted_at, created_at, updated_at
+        FROM submissions
+        WHERE status = 'pending' AND deleted_at IS NULL
+        ORDER BY created_at ASC
+        LIMIT $1 OFFSET $2
+    `
+
+	var rows pgx.Rows
+	rows, err = r.db.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list submissions: %w", err)
+	}
+	defer rows.Close()
+
+	var submissions []Submission
+	for rows.Next() {
+		var s Submission
+		err = rows.Scan(
+			&s.ID, &s.SubmittedBy, &s.Status, &s.RejectionReason,
+			&s.ReviewedBy, &s.ReviewedAt, &s.BookID, &s.EditionID,
+			&s.CopyID, &s.DeletedAt, &s.CreatedAt, &s.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan submission: %w", err)
+		}
+		submissions = append(submissions, s)
+	}
+
+	return submissions, total, nil
+}
+
+func (r *Repository) FindSubmissionByID(ctx context.Context, id string) (*Submission, error) {
+	var s Submission
+	var query string = `
+        SELECT id, submitted_by, status, rejection_reason, reviewed_by,
+               reviewed_at, book_id, edition_id, copy_id, deleted_at, created_at, updated_at
+        FROM submissions
+        WHERE id = $1 AND deleted_at IS NULL
+    `
+
+	var err error = r.db.QueryRow(ctx, query, id).Scan(
+		&s.ID, &s.SubmittedBy, &s.Status, &s.RejectionReason,
+		&s.ReviewedBy, &s.ReviewedAt, &s.BookID, &s.EditionID,
+		&s.CopyID, &s.DeletedAt, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("submission not found: %w", err)
+	}
+
+	return &s, nil
+}
+
+func (r *Repository) ApproveSubmission(ctx context.Context, id string, reviewerID string) error {
+	var query string = `
+        UPDATE submissions
+        SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND status = 'pending'
+    `
+	var tag pgconn.CommandTag
+	var err error
+	tag, err = r.db.Exec(ctx, query, id, reviewerID)
+	if err != nil {
+		return fmt.Errorf("failed to approve submission: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("submission not found or already reviewed")
+	}
+	return nil
+}
+
+func (r *Repository) RejectSubmission(ctx context.Context, id string, reviewerID string, reason string) error {
+	var query string = `
+        UPDATE submissions
+        SET status = 'rejected', reviewed_by = $2, reviewed_at = NOW(),
+            rejection_reason = $3, updated_at = NOW()
+        WHERE id = $1 AND status = 'pending'
+    `
+	var tag pgconn.CommandTag
+	var err error
+	tag, err = r.db.Exec(ctx, query, id, reviewerID, reason)
+	if err != nil {
+		return fmt.Errorf("failed to reject submission: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("submission not found or already reviewed")
+	}
+	return nil
+}
+
+func (r *Repository) ApproveBookEntities(ctx context.Context, bookID string, editionID string) error {
+	var err error
+
+	var bookQuery string = `UPDATE books SET status = 'approved', updated_at = NOW() WHERE id = $1`
+	_, err = r.db.Exec(ctx, bookQuery, bookID)
+	if err != nil {
+		return fmt.Errorf("failed to approve book: %w", err)
+	}
+
+	var editionQuery string = `UPDATE book_editions SET status = 'approved', updated_at = NOW() WHERE id = $1`
+	_, err = r.db.Exec(ctx, editionQuery, editionID)
+	if err != nil {
+		return fmt.Errorf("failed to approve edition: %w", err)
+	}
+
+	var authorQuery string = `
+        UPDATE authors SET status = 'approved', updated_at = NOW()
+        WHERE id IN (SELECT author_id FROM book_authors WHERE book_id = $1)
+        AND status = 'pending'
+    `
+	_, err = r.db.Exec(ctx, authorQuery, bookID)
+	if err != nil {
+		return fmt.Errorf("failed to approve authors: %w", err)
+	}
+
+	var genreQuery string = `
+        UPDATE genres SET status = 'approved'
+        WHERE id IN (SELECT genre_id FROM book_genres WHERE book_id = $1)
+        AND status = 'pending'
+    `
+	_, err = r.db.Exec(ctx, genreQuery, bookID)
+	if err != nil {
+		return fmt.Errorf("failed to approve genres: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) UpdateBookDetails(ctx context.Context, bookID string, title string, description *string, coverURL *string) error {
+	var query string = `
+        UPDATE books SET title = $2, description = $3, cover_url = $4, updated_at = NOW()
+        WHERE id = $1
+    `
+	var _, err = r.db.Exec(ctx, query, bookID, title, description, coverURL)
+	if err != nil {
+		return fmt.Errorf("failed to update book: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) UpdateEditionDetails(ctx context.Context, editionID string, e Edition) error {
+	var query string = `
+        UPDATE book_editions SET
+            format = $2, isbn = $3, language = $4, publisher = $5,
+            edition = $6, page_count = $7, updated_at = NOW()
+        WHERE id = $1
+    `
+	var _, err = r.db.Exec(ctx, query,
+		editionID, e.Format, e.ISBN, e.Language,
+		e.Publisher, e.Edition, e.PageCount,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update edition: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) InsertModerationLog(ctx context.Context, moderatorID string, entityType string, entityID string, action string, before interface{}, after interface{}) error {
+	var query string = `
+        INSERT INTO moderation_log (moderator_id, entity_type, entity_id, action, before, after)
+        VALUES ($1, $2, $3, $4, $5, $6)
+    `
+	var _, err = r.db.Exec(ctx, query, moderatorID, entityType, entityID, action, before, after)
+	if err != nil {
+		return fmt.Errorf("failed to insert moderation log: %w", err)
+	}
+	return nil
 }
 
 func (r *txRepository) FindOrCreateAuthor(ctx context.Context, name string, autoApprove bool) (Author, error) {

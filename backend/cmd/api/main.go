@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/AgataPalma/biblios/internal/auth"
 	"github.com/AgataPalma/biblios/internal/books"
 	"github.com/AgataPalma/biblios/internal/config"
 	"github.com/AgataPalma/biblios/internal/database"
 	"github.com/AgataPalma/biblios/internal/lookup"
 	"github.com/AgataPalma/biblios/internal/middleware"
+	"github.com/AgataPalma/biblios/internal/moderation"
 	"github.com/AgataPalma/biblios/internal/tokenstore"
 	"github.com/AgataPalma/biblios/internal/users"
 	"github.com/go-chi/chi/v5"
@@ -89,6 +91,10 @@ func main() {
 	var bookService *books.Service = books.NewService(bookRepo, db)
 	var bookHandler *books.Handler = books.NewHandler(bookService)
 
+	// Moderation
+	var moderationService *moderation.Service = moderation.NewService(bookRepo)
+	var moderationHandler *moderation.Handler = moderation.NewHandler(moderationService)
+
 	// Lookup
 	var lookupService *lookup.Service = lookup.NewService(cfg.GoogleBooksAPIKey)
 	var lookupHandler *lookup.Handler = lookup.NewHandler(lookupService)
@@ -115,6 +121,16 @@ func main() {
 			r.Get("/books/lookup", lookupHandler.Lookup)
 			r.Get("/books/check", bookHandler.CheckDuplicate)
 			r.Post("/books/copies", bookHandler.AddCopy)
+		})
+		// Moderation routes - moderators and admins only
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Authenticate(cfg.JWTSecret, tStore))
+			r.Use(middleware.RequireRole(apictx.RoleModerator, apictx.RoleAdmin))
+			r.Get("/moderation/submissions", moderationHandler.ListPending)
+			r.Get("/moderation/submissions/{id}", moderationHandler.GetSubmission)
+			r.Put("/moderation/submissions/{id}/approve", moderationHandler.Approve)
+			r.Put("/moderation/submissions/{id}/reject", moderationHandler.Reject)
+			r.Put("/moderation/submissions/{id}/edit", moderationHandler.EditAndApprove)
 		})
 	})
 
