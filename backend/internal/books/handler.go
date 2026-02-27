@@ -1,6 +1,7 @@
 package books
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/go-chi/chi/v5"
 	"net/http"
@@ -9,12 +10,20 @@ import (
 	"github.com/AgataPalma/biblios/internal/apictx"
 )
 
-type Handler struct {
-	service *Service
+type LookupService interface {
+	LookupByISBN(ctx context.Context, isbn string) (string, error)
 }
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+type Handler struct {
+	service       *Service
+	lookupService LookupService
+}
+
+func NewHandler(service *Service, lookupService LookupService) *Handler {
+	return &Handler{
+		service:       service,
+		lookupService: lookupService,
+	}
 }
 
 type submitBookRequest struct {
@@ -296,6 +305,119 @@ func (h *Handler) GetMyBooks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) BackfillCovers(w http.ResponseWriter, r *http.Request) {
+	books, err := h.service.GetBooksWithoutCovers(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to fetch books")
+		return
+	}
+
+	updated := 0
+	for _, book := range books {
+		for _, edition := range book.Editions {
+			if edition.ISBN == nil || *edition.ISBN == "" {
+				continue
+			}
+			coverURL, err := h.lookupService.LookupByISBN(r.Context(), *edition.ISBN)
+			if err != nil || coverURL == "" {
+				continue
+			}
+			err = h.service.UpdateCoverURL(r.Context(), book.ID, coverURL)
+			if err == nil {
+				updated++
+				break
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":   len(books),
+		"updated": updated,
+	})
+}
+
+type updateReadingStatusRequest struct {
+	Status string `json:"status"`
+}
+
+func (h *Handler) UpdateReadingStatus(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	copyID := chi.URLParam(r, "id")
+
+	var req updateReadingStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	valid := map[string]bool{"want_to_read": true, "reading": true, "read": true}
+	if !valid[req.Status] {
+		writeError(w, http.StatusUnprocessableEntity, "invalid status")
+		return
+	}
+
+	if err := h.service.UpdateReadingStatus(r.Context(), copyID, claims.UserID, req.Status); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update status")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "status updated"})
+}
+
+func (h *Handler) RemoveCopy(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	copyID := chi.URLParam(r, "id")
+
+	if err := h.service.RemoveCopy(r.Context(), copyID, claims.UserID); err != nil {
+		if err.Error() == "copy not found" {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to remove copy")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "copy removed"})
+}
+
+func (h *Handler) GetMyLibrary(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	page, limit := 1, 20
+	if p := r.URL.Query().Get("page"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil && v > 0 {
+			page = v
+		}
+	}
+
+	books, total, err := h.service.GetMyLibrary(r.Context(), claims.UserID, page, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get library")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"books": books,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

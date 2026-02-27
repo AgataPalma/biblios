@@ -51,14 +51,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		Password: req.Password,
 	}
 
-	// Validate input
 	err = users.ValidateRegisterInput(input)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
-	// Register user
 	var user users.User
 	user, err = h.userService.Register(r.Context(), input)
 	if err != nil {
@@ -70,7 +68,14 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, registerResponse{User: user})
+	var token string
+	token, err = GenerateToken(user.ID, user.Role, h.jwtSecret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, loginResponse{Token: token, User: user})
 }
 
 type loginRequest struct {
@@ -145,10 +150,15 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"user_id": claims.UserID,
-		"role":    claims.Role,
-	})
+	var user users.User
+	var err error
+	user, err = h.userService.GetByID(r.Context(), claims.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get user")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user)
 }
 
 type updateThemeRequest struct {

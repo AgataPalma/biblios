@@ -90,7 +90,6 @@ func main() {
 	// Books
 	var bookRepo *books.Repository = books.NewRepository(db)
 	var bookService *books.Service = books.NewService(bookRepo, db)
-	var bookHandler *books.Handler = books.NewHandler(bookService)
 
 	// Moderation
 	var moderationService *moderation.Service = moderation.NewService(bookRepo)
@@ -100,6 +99,8 @@ func main() {
 	var lookupService *lookup.Service = lookup.NewService(cfg.GoogleBooksAPIKey)
 	var lookupHandler *lookup.Handler = lookup.NewHandler(lookupService)
 
+	// Adapter to satisfy books.LookupService interface
+	var bookHandler *books.Handler = books.NewHandler(bookService, &lookupAdapter{svc: lookupService})
 	// Router
 	var r *chi.Mux = chi.NewRouter()
 	//    r := chi.NewRouter()
@@ -112,7 +113,7 @@ func main() {
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
-	
+
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.RequestID)
@@ -140,6 +141,9 @@ func main() {
 			r.Post("/books", bookHandler.SubmitBook)
 			r.Post("/books/copies", bookHandler.AddCopy)
 			r.Get("/users/me/books", bookHandler.GetMyBooks)
+			r.Get("/users/me/library", bookHandler.GetMyLibrary)
+			r.Put("/books/copies/{id}/status", bookHandler.UpdateReadingStatus)
+			r.Delete("/books/copies/{id}", bookHandler.RemoveCopy)
 
 			// Books - moderators and admins only
 			r.Group(func(r chi.Router) {
@@ -148,6 +152,7 @@ func main() {
 				r.Delete("/books/{id}", bookHandler.DeleteBook)
 			})
 		})
+
 		// Moderation routes - moderators and admins only
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Authenticate(cfg.JWTSecret, tStore))
@@ -157,6 +162,9 @@ func main() {
 			r.Put("/moderation/submissions/{id}/approve", moderationHandler.Approve)
 			r.Put("/moderation/submissions/{id}/reject", moderationHandler.Reject)
 			r.Put("/moderation/submissions/{id}/edit", moderationHandler.EditAndApprove)
+			// Admin only
+			r.With(middleware.RequireRole(apictx.RoleAdmin)).
+				Post("/admin/backfill-covers", bookHandler.BackfillCovers)
 		})
 	})
 
@@ -172,4 +180,16 @@ func main() {
 		slog.Error("server failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+type lookupAdapter struct {
+	svc *lookup.Service
+}
+
+func (a *lookupAdapter) LookupByISBN(ctx context.Context, isbn string) (string, error) {
+	result, err := a.svc.LookupByISBN(ctx, isbn)
+	if err != nil || result == nil {
+		return "", err
+	}
+	return result.CoverURL, nil
 }

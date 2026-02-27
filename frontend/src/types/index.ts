@@ -5,6 +5,7 @@ export interface User {
     email: string
     username: string
     role: Role
+    theme: string
     created_at: string
     updated_at: string
 }
@@ -29,15 +30,10 @@ export interface Edition {
     book_id: string
     format: string
     isbn?: string
-    asin?: string
-    language: string
+    language?: string
     publisher?: string
-    edition?: string
     published_at?: string
     page_count?: number
-    file_format?: string
-    duration_minutes?: number
-    audio_format?: string
     status: string
     created_at: string
     updated_at: string
@@ -51,24 +47,11 @@ export interface Book {
     status: string
     authors: Author[]
     genres: Genre[]
-    editions?: Edition[]
+    editions: Edition[]
     created_at: string
     updated_at: string
 }
 
-export interface Submission {
-    id: string
-    submitted_by: string
-    status: string
-    rejection_reason?: string
-    reviewed_by?: string
-    reviewed_at?: string
-    book_id?: string
-    edition_id?: string
-    copy_id?: string
-    created_at: string
-    updated_at: string
-}
 
 export interface PaginatedResponse<T> {
     total: number
@@ -105,4 +88,29 @@ export interface LookupResult {
     Language: string
     CoverURL: string
     Categories: string[]
+}
+
+export interface UserBook {
+    copy_id: string
+    reading_status: 'want_to_read' | 'reading' | 'read'
+    condition?: string
+    added_at: string
+    edition_id: string
+    format: string
+    language?: string
+    book: Book
+}
+
+export interface Submission {
+    id: string
+    submitted_by: string
+    status: string
+    rejection_reason?: string
+    reviewed_by?: string
+    reviewed_at?: string
+    book_id: string
+    edition_id: string
+    copy_id?: string
+    created_at: string
+    updated_at: string
 }

@@ -739,6 +739,57 @@ func (r *Repository) DeleteBook(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *Repository) FindUserBooksWithCopies(ctx context.Context, userID string, page int, limit int) ([]UserBook, int, error) {
+	offset := (page - 1) * limit
+
+	countQuery := `
+        SELECT COUNT(DISTINCT bc.id)
+        FROM book_copies bc
+        JOIN book_editions be ON be.id = bc.edition_id
+        JOIN books b ON b.id = be.book_id
+        WHERE bc.owner_id = $1 AND bc.deleted_at IS NULL AND b.deleted_at IS NULL
+    `
+	var total int
+	if err := r.db.QueryRow(ctx, countQuery, userID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count: %w", err)
+	}
+
+	query := `
+        SELECT bc.id, bc.reading_status, bc.condition, bc.created_at,
+               b.id, b.title, b.description, b.cover_url, b.status,
+               b.deleted_at, b.created_at, b.updated_at,
+               be.id, be.format, be.language
+        FROM book_copies bc
+        JOIN book_editions be ON be.id = bc.edition_id
+        JOIN books b ON b.id = be.book_id
+        WHERE bc.owner_id = $1 AND bc.deleted_at IS NULL AND b.deleted_at IS NULL
+        ORDER BY bc.created_at DESC
+        LIMIT $2 OFFSET $3
+    `
+	rows, err := r.db.Query(ctx, query, userID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query: %w", err)
+	}
+	defer rows.Close()
+
+	var userBooks []UserBook
+	for rows.Next() {
+		var ub UserBook
+		err = rows.Scan(
+			&ub.CopyID, &ub.ReadingStatus, &ub.Condition, &ub.AddedAt,
+			&ub.Book.ID, &ub.Book.Title, &ub.Book.Description,
+			&ub.Book.CoverURL, &ub.Book.Status, &ub.Book.DeletedAt,
+			&ub.Book.CreatedAt, &ub.Book.UpdatedAt,
+			&ub.EditionID, &ub.Format, &ub.Language,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan: %w", err)
+		}
+		userBooks = append(userBooks, ub)
+	}
+	return userBooks, total, nil
+}
+
 func (r *Repository) FindUserBooks(ctx context.Context, userID string, page int, limit int) ([]Book, int, error) {
 	var offset int = (page - 1) * limit
 
@@ -786,4 +837,93 @@ func (r *Repository) FindUserBooks(ctx context.Context, userID string, page int,
 	}
 
 	return bookList, total, nil
+}
+
+func (r *Repository) FindBooksWithoutCovers(ctx context.Context) ([]BookWithDetails, error) {
+	query := `
+        SELECT DISTINCT b.id, b.title
+        FROM books b
+        JOIN book_editions e ON e.book_id = b.id
+        WHERE (b.cover_url IS NULL OR b.cover_url = '')
+          AND e.isbn IS NOT NULL
+          AND e.isbn != ''
+          AND b.deleted_at IS NULL
+    `
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var books []BookWithDetails
+	for rows.Next() {
+		var b BookWithDetails
+		if err := rows.Scan(&b.ID, &b.Title); err != nil {
+			continue
+		}
+		// Load editions for this book
+		b.Editions, _ = r.findEditionsByBookID(ctx, b.ID)
+		books = append(books, b)
+	}
+	return books, nil
+}
+
+func (r *Repository) UpdateCoverURL(ctx context.Context, bookID, coverURL string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE books SET cover_url = $1, updated_at = NOW() WHERE id = $2`,
+		coverURL, bookID,
+	)
+	return err
+}
+
+func (r *Repository) findEditionsByBookID(ctx context.Context, bookID string) ([]Edition, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT id, book_id, isbn, format, language
+         FROM book_editions WHERE book_id = $1 AND deleted_at IS NULL`,
+		bookID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var editions []Edition
+	for rows.Next() {
+		var e Edition
+		if err := rows.Scan(&e.ID, &e.BookID, &e.ISBN, &e.Format, &e.Language); err != nil {
+			continue
+		}
+		editions = append(editions, e)
+	}
+	return editions, nil
+}
+
+func (r *Repository) UpdateReadingStatus(ctx context.Context, copyID, userID, status string) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE book_copies SET reading_status = $1, updated_at = NOW()
+         WHERE id = $2 AND owner_id = $3 AND deleted_at IS NULL`,
+		status, copyID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update reading status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("copy not found")
+	}
+	return nil
+}
+
+func (r *Repository) RemoveCopy(ctx context.Context, copyID, userID string) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE book_copies SET deleted_at = NOW(), updated_at = NOW()
+         WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL`,
+		copyID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to remove copy: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("copy not found")
+	}
+	return nil
 }

@@ -77,3 +77,7 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (User, error) {
 func (s *Service) UpdateTheme(ctx context.Context, userID string, theme string) error {
 	return s.repo.UpdateTheme(ctx, userID, theme)
 }
+
+func (s *Service) GetByID(ctx context.Context, id string) (User, error) {
+	return s.repo.FindByID(ctx, id)
+}

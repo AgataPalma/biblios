@@ -301,3 +301,30 @@ func (s *Service) GetUserBooks(ctx context.Context, userID string, page int, lim
 		Limit: limit,
 	}, nil
 }
+
+func (s *Service) GetBooksWithoutCovers(ctx context.Context) ([]BookWithDetails, error) {
+	return s.repo.FindBooksWithoutCovers(ctx)
+}
+
+func (s *Service) UpdateCoverURL(ctx context.Context, bookID, coverURL string) error {
+	return s.repo.UpdateCoverURL(ctx, bookID, coverURL)
+}
+
+func (s *Service) UpdateReadingStatus(ctx context.Context, copyID, userID, status string) error {
+	return s.repo.UpdateReadingStatus(ctx, copyID, userID, status)
+}
+
+func (s *Service) RemoveCopy(ctx context.Context, copyID, userID string) error {
+	return s.repo.RemoveCopy(ctx, copyID, userID)
+}
+
+func (s *Service) GetMyLibrary(ctx context.Context, userID string, page, limit int) ([]UserBook, int, error) {
+	books, total, err := s.repo.FindUserBooksWithCopies(ctx, userID, page, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	if books == nil {
+		books = []UserBook{}
+	}
+	return books, total, nil
+}

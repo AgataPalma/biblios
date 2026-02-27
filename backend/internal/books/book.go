@@ -77,13 +77,14 @@ type Edition struct {
 }
 
 type Copy struct {
-	ID        string     `json:"id"`
-	EditionID string     `json:"edition_id"`
-	OwnerID   string     `json:"owner_id"`
-	Condition *string    `json:"condition,omitempty"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID            string     `json:"id"`
+	EditionID     string     `json:"edition_id"`
+	OwnerID       string     `json:"owner_id"`
+	Condition     *string    `json:"condition"`
+	ReadingStatus string     `json:"reading_status"`
+	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 type Submission struct {
@@ -106,4 +107,28 @@ type Submission struct {
 // Role check helpers
 func CanAutoApprove(role apictx.Role) bool {
 	return role == apictx.RoleModerator || role == apictx.RoleAdmin
+}
+
+type BookWithDetails struct {
+	ID       string    `json:"id"`
+	Title    string    `json:"title"`
+	Editions []Edition `json:"editions"`
+}
+
+type LookupResult struct {
+	Title       string `json:"title"`
+	CoverURL    string `json:"cover_url"`
+	ISBN        string `json:"isbn"`
+	Description string `json:"description"`
+}
+
+type UserBook struct {
+	CopyID        string    `json:"copy_id"`
+	ReadingStatus string    `json:"reading_status"`
+	Condition     *string   `json:"condition"`
+	AddedAt       time.Time `json:"added_at"`
+	EditionID     string    `json:"edition_id"`
+	Format        string    `json:"format"`
+	Language      *string   `json:"language"`
+	Book          Book      `json:"book"`
 }

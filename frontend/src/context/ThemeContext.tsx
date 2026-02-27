@@ -14,7 +14,6 @@ function applyTheme(id: ThemeId): void {
     const theme = themes[id]
     const root = document.documentElement
 
-    // Colors
     root.style.setProperty('--color-background', theme.colors.background)
     root.style.setProperty('--color-surface', theme.colors.surface)
     root.style.setProperty('--color-surface-alt', theme.colors.surfaceAlt)
@@ -28,8 +27,6 @@ function applyTheme(id: ThemeId): void {
     root.style.setProperty('--color-error', theme.colors.error)
     root.style.setProperty('--color-success', theme.colors.success)
     root.style.setProperty('--color-shadow', theme.colors.shadow)
-
-    // Effects
     root.style.setProperty('--border-radius', theme.effects.borderRadius)
     root.style.setProperty('--shadow-sm', theme.effects.shadowSm)
     root.style.setProperty('--shadow-md', theme.effects.shadowMd)
@@ -38,19 +35,16 @@ function applyTheme(id: ThemeId): void {
     root.style.setProperty('--input-bg', theme.effects.inputBg)
     root.style.setProperty('--glass-bg', theme.effects.glassBg)
     root.style.setProperty('--glass-blur', theme.effects.glassBlur)
-
-    // Fonts
     root.style.setProperty('--font-heading', theme.fonts.heading)
     root.style.setProperty('--font-body', theme.fonts.body)
 
     // Load Google Fonts dynamically
-    const fontId: string = `theme-font-${id}`
-    let link = document.getElementById(fontId) as HTMLLinkElement | null
-    if (!link) {
-        link = document.createElement('link')
+    const fontId = `theme-font-${id}`
+    if (!document.getElementById(fontId)) {
+        const link = document.createElement('link')
         link.id = fontId
         link.rel = 'stylesheet'
-        const fonts: string = [theme.fonts.heading, theme.fonts.body]
+        const fonts = [theme.fonts.heading, theme.fonts.body]
             .map(f => f.replace(/'/g, '').split(',')[0].trim())
             .filter((v, i, a) => a.indexOf(v) === i)
             .map(f => f.replace(/ /g, '+'))
@@ -60,8 +54,11 @@ function applyTheme(id: ThemeId): void {
     }
 }
 
-export function ThemeProvider({ children, initialTheme }: { children: ReactNode, initialTheme?: ThemeId }) {
-    const [themeId, setThemeId] = useState<ThemeId>(initialTheme || 'default-light')
+export function ThemeProvider({ children }: { children: ReactNode }) {
+    // Default to woody for unauthenticated pages
+    // When user logs in, AuthContext will call setTheme with their saved theme
+    const stored = localStorage.getItem('theme') as ThemeId | null
+    const [themeId, setThemeId] = useState<ThemeId>(stored ?? 'woody')
 
     useEffect(() => {
         applyTheme(themeId)
@@ -81,8 +78,6 @@ export function ThemeProvider({ children, initialTheme }: { children: ReactNode,
 
 export function useTheme(): ThemeContextType {
     const context = useContext(ThemeContext)
-    if (!context) {
-        throw new Error('useTheme must be used within a ThemeProvider')
-    }
+    if (!context) throw new Error('useTheme must be used within ThemeProvider')
     return context
 }

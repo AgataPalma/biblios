@@ -58,3 +58,29 @@ export async function getMyBooks(page: number = 1, limit: number = 20): Promise<
     const response = await apiClient.get<BooksResponse>(`/users/me/books?page=${page}&limit=${limit}`)
     return response.data
 }
+
+export async function getMyLibrary(page = 1, limit = 20) {
+    const res = await apiClient.get('/users/me/library', { params: { page, limit } })
+    return res.data
+}
+
+export async function updateReadingStatus(copyId: string, status: string): Promise<void> {
+    await apiClient.put(`/books/copies/${copyId}/status`, { status })
+}
+
+export async function removeCopy(copyId: string): Promise<void> {
+    await apiClient.delete(`/books/copies/${copyId}`)
+}
+
+export async function getPendingSubmissions(page = 1, limit = 20) {
+    const res = await apiClient.get('/moderation/submissions', { params: { page, limit } })
+    return res.data
+}
+
+export async function approveSubmission(id: string): Promise<void> {
+    await apiClient.put(`/moderation/submissions/${id}/approve`)
+}
+
+export async function rejectSubmission(id: string, reason: string): Promise<void> {
+    await apiClient.put(`/moderation/submissions/${id}/reject`, { reason })
+}

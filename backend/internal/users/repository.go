@@ -108,3 +108,28 @@ func (r *Repository) UpdateTheme(ctx context.Context, userID string, theme strin
 	}
 	return nil
 }
+
+func (r *Repository) FindByID(ctx context.Context, id string) (User, error) {
+	var user User
+	var query string = `
+		SELECT id, email, username, password_hash, role, is_admin, theme, deleted_at, created_at, updated_at
+		FROM users
+		WHERE id = $1 AND deleted_at IS NULL
+	`
+	var err error = r.db.QueryRow(ctx, query, id).Scan(
+		&user.ID,
+		&user.Email,
+		&user.Username,
+		&user.PasswordHash,
+		&user.Role,
+		&user.IsAdmin,
+		&user.Theme,
+		&user.DeletedAt,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+	if err != nil {
+		return User{}, fmt.Errorf("user not found: %w", err)
+	}
+	return user, nil
+}

@@ -5,7 +5,6 @@ import { login } from '../api/auth'
 import { useAuth } from '../context/AuthContext'
 import Input from '../components/Input'
 import Button from '../components/Button'
-import ThemeSwitcher from '../components/ThemeSwitcher'
 import type { AuthResponse } from '../types'
 
 export default function LoginPage() {
@@ -41,10 +40,6 @@ export default function LoginPage() {
             className="min-h-screen flex items-center justify-center p-4"
 
         >
-            {/* Theme switcher in top right */}
-            <div className="fixed top-4 right-4">
-                <ThemeSwitcher />
-            </div>
 
             <div
                 className="p-8 w-full max-w-md"

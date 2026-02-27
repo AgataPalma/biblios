@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { User } from '../types'
 import { getMe } from '../api/auth'
+import { useTheme } from './ThemeContext'
+import type { ThemeId } from '../themes/themes'
 
 interface AuthContextType {
     user: User | null
@@ -14,23 +16,25 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
-interface AuthProviderProps {
-    children: ReactNode
-}
-
-export function AuthProvider({ children }: AuthProviderProps) {
+export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null)
     const [token, setToken] = useState<string | null>(localStorage.getItem('token'))
     const [isLoading, setIsLoading] = useState<boolean>(true)
+    const { setTheme } = useTheme()
 
     useEffect(() => {
         async function loadUser() {
-            const storedToken: string | null = localStorage.getItem('token')
+            const storedToken = localStorage.getItem('token')
             if (storedToken) {
                 try {
                     const me: User = await getMe()
                     setUser(me)
                     setToken(storedToken)
+                    // Apply user's saved theme
+                    if (me.theme) {
+                        setTheme(me.theme as ThemeId)
+                        localStorage.setItem('theme', me.theme)
+                    }
                 } catch {
                     localStorage.removeItem('token')
                     setToken(null)
@@ -46,12 +50,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
         localStorage.setItem('token', newToken)
         setToken(newToken)
         setUser(newUser)
+        // Apply user's saved theme on login
+        if (newUser.theme) {
+            setTheme(newUser.theme as ThemeId)
+            localStorage.setItem('theme', newUser.theme)
+        }
     }
 
     function clearAuth(): void {
         localStorage.removeItem('token')
+        localStorage.removeItem('theme')
         setToken(null)
         setUser(null)
+        // Reset to woody on logout
+        setTheme('woody')
     }
 
     return (
@@ -70,8 +82,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
 export function useAuth(): AuthContextType {
     const context = useContext(AuthContext)
-    if (!context) {
-        throw new Error('useAuth must be used within an AuthProvider')
-    }
+    if (!context) throw new Error('useAuth must be used within AuthProvider')
     return context
 }
