@@ -77,17 +77,18 @@ export interface AuthResponse {
 }
 
 export interface LookupResult {
-    Title: string
-    Authors: string[]
-    Publisher: string
-    PublishedDate: string
-    Description: string
-    ISBN10: string
-    ISBN13: string
-    PageCount: number
-    Language: string
-    CoverURL: string
-    Categories: string[]
+    title: string
+    authors: string[]
+    isbn?: string      // we'll use isbn_13 falling back to isbn_10
+    isbn_10?: string
+    isbn_13?: string
+    publisher?: string
+    published_date?: string
+    page_count?: number
+    cover_url?: string
+    language?: string
+    description?: string
+    categories?: string[]
 }
 
 export interface UserBook {

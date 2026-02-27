@@ -9,6 +9,8 @@ import BooksPage from './pages/BooksPage'
 import BookDetailPage from './pages/BookDetailPage'
 import LibraryPage from './pages/LibraryPage'
 import ModerationPage from './pages/ModerationPage'
+import AddBookPage from './pages/AddBookPage'
+
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const { isAuthenticated, isLoading } = useAuth()
@@ -54,6 +56,10 @@ export default function App() {
                 <ProtectedRoute>
                     <BooksPage />
                 </ProtectedRoute>
+            } />
+            <Route path="/books/add" element={
+                <ProtectedRoute>
+                    <AddBookPage /></ProtectedRoute>
             } />
             <Route path="/books/:id" element={
                 <ProtectedRoute>

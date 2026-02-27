@@ -55,7 +55,7 @@ export default function BooksPage() {
                 </div>
 
                 <button
-                    onClick={() => navigate('/books/submit')}
+                    onClick={() => navigate('/books/add')}
                     style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -79,7 +79,7 @@ export default function BooksPage() {
                     }}
                 >
                     <span>➕</span>
-                    <span>Submit a book</span>
+                    <span>Add a book</span>
                 </button>
             </div>
 
@@ -106,8 +106,8 @@ export default function BooksPage() {
                     <EmptyState
                         icon="📭"
                         title="No books yet"
-                        description="The catalogue is empty. Be the first to submit a book!"
-                        action={{ label: 'Submit a book', onClick: () => navigate('/books/submit') }}
+                        description="The catalogue is empty. Be the first to add a book!"
+                        action={{ label: 'Add a book', onClick: () => navigate('/books/add') }}
                     />
                 </Card>
             ) : (

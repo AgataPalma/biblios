@@ -137,13 +137,13 @@ func main() {
 			r.Get("/books", bookHandler.ListBooks)
 			r.Get("/books/lookup", lookupHandler.Lookup)
 			r.Get("/books/check", bookHandler.CheckDuplicate)
-			r.Get("/books/{id}", bookHandler.GetBook)
 			r.Post("/books", bookHandler.SubmitBook)
 			r.Post("/books/copies", bookHandler.AddCopy)
 			r.Get("/users/me/books", bookHandler.GetMyBooks)
 			r.Get("/users/me/library", bookHandler.GetMyLibrary)
 			r.Put("/books/copies/{id}/status", bookHandler.UpdateReadingStatus)
 			r.Delete("/books/copies/{id}", bookHandler.RemoveCopy)
+			r.Get("/books/{id}", bookHandler.GetBook)
 
 			// Books - moderators and admins only
 			r.Group(func(r chi.Router) {

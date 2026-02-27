@@ -20,6 +20,8 @@ export interface SubmitBookPayload {
         language: string
         publisher?: string
         page_count?: number
+        narrator?: string
+        duration_minutes?: number
     }
     condition?: string
 }
@@ -44,8 +46,10 @@ export async function lookupByISBN(isbn: string): Promise<LookupResult> {
     return response.data
 }
 
-export async function lookupByTitleAuthor(title: string, author: string): Promise<LookupResult> {
-    const response = await apiClient.get<LookupResult>(`/books/lookup?title=${encodeURIComponent(title)}&author=${encodeURIComponent(author)}`)
+export async function lookupByTitleAuthor(title: string, author?: string): Promise<LookupResult> {
+    const params = new URLSearchParams({ title })
+    if (author) params.append('author', author)
+    const response = await apiClient.get<LookupResult>(`/books/lookup?${params.toString()}`)
     return response.data
 }
 

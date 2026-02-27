@@ -304,7 +304,7 @@ export default function BookDetailPage() {
                     {/* Action buttons */}
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                         <button
-                            onClick={() => navigate('/books/submit')}
+                            onClick={() => navigate('/books/add')}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',

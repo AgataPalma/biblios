@@ -14,17 +14,17 @@ type googleBooksClient struct {
 }
 
 type GoogleBooksResult struct {
-	Title         string
-	Authors       []string
-	Publisher     string
-	PublishedDate string
-	Description   string
-	ISBN10        string
-	ISBN13        string
-	PageCount     int
-	Language      string
-	CoverURL      string
-	Categories    []string
+	Title         string   `json:"title"`
+	Authors       []string `json:"authors"`
+	Publisher     string   `json:"publisher"`
+	PublishedDate string   `json:"published_date"`
+	Description   string   `json:"description"`
+	ISBN10        string   `json:"isbn_10"`
+	ISBN13        string   `json:"isbn_13"`
+	PageCount     int      `json:"page_count"`
+	Language      string   `json:"language"`
+	CoverURL      string   `json:"cover_url"`
+	Categories    []string `json:"categories"`
 }
 
 type googleBooksResponse struct {

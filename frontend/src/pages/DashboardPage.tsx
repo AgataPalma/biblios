@@ -283,7 +283,7 @@ export default function DashboardPage() {
                             icon="🔍"
                             title="No books in catalogue"
                             description="Be the first to add a book to the Biblios catalogue."
-                            action={{ label: 'Add a book', onClick: () => navigate('/books/submit') }}
+                            action={{ label: 'Add a book', onClick: () => navigate('/books/add') }}
                         />
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -362,7 +362,7 @@ export default function DashboardPage() {
                     </h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {[
-                            { icon: '➕', label: 'Submit a new book', path: '/books/submit' },
+                            { icon: '➕', label: 'Add a new book', path: '/books/add' },
                             { icon: '🔍', label: 'Browse the catalogue', path: '/books' },
                             { icon: '🗄️', label: 'View my library', path: '/library' },
                             ...(user?.role === 'moderator' || user?.role === 'admin'
