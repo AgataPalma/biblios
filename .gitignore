@@ -34,6 +34,7 @@ backend/*.test
 
 # ─── Environment ──────────────────────────────────────
 .env
+.env.dev
 .env.local
 .env.prod
 *.env

@@ -36,7 +36,8 @@ type openLibraryISBNResponse struct {
 }
 
 type openLibrarySearchResponse struct {
-	Docs []struct {
+	NumFound int `json:"numFound"`
+	Docs     []struct {
 		Title               string   `json:"title"`
 		AuthorNames         []string `json:"author_name"`
 		Publisher           []string `json:"publisher"`
@@ -106,10 +107,12 @@ func (c *openLibraryClient) SearchByISBN(ctx context.Context, isbn string) (*Goo
 	return &result, nil
 }
 
-func (c *openLibraryClient) SearchByTitleAuthor(ctx context.Context, title string, author string) (*GoogleBooksResult, error) {
+func (c *openLibraryClient) SearchByTitleAuthor(ctx context.Context, title string, author string, page int) (*SearchResultList, error) {
+	var pageSize int = 20
+	var offset int = (page - 1) * pageSize
 	var reqURL string = fmt.Sprintf(
-		"https://openlibrary.org/search.json?title=%s&author=%s&limit=1",
-		url.QueryEscape(title), url.QueryEscape(author),
+		"https://openlibrary.org/search.json?title=%s&author=%s&limit=%d&offset=%d",
+		url.QueryEscape(title), url.QueryEscape(author), pageSize, offset,
 	)
 
 	var req *http.Request
@@ -132,28 +135,31 @@ func (c *openLibraryClient) SearchByTitleAuthor(ctx context.Context, title strin
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	if len(searchResp.Docs) == 0 {
-		return nil, nil
+	var results []GoogleBooksResult
+	for _, doc := range searchResp.Docs {
+		var r GoogleBooksResult = GoogleBooksResult{
+			Title:      doc.Title,
+			Authors:    doc.AuthorNames,
+			Categories: doc.Subject,
+			PageCount:  doc.NumberOfPagesMedian,
+			Language:   strings.Join(doc.Language, ", "),
+		}
+		if len(doc.Publisher) > 0 {
+			r.Publisher = doc.Publisher[0]
+		}
+		if len(doc.ISBN) > 0 {
+			r.ISBN13 = doc.ISBN[0]
+		}
+		if doc.CoverI > 0 {
+			r.CoverURL = fmt.Sprintf("https://covers.openlibrary.org/b/id/%d-L.jpg", doc.CoverI)
+		}
+		results = append(results, r)
 	}
 
-	var doc = searchResp.Docs[0]
-	var result GoogleBooksResult = GoogleBooksResult{
-		Title:      doc.Title,
-		Authors:    doc.AuthorNames,
-		Categories: doc.Subject,
-		PageCount:  doc.NumberOfPagesMedian,
-		Language:   strings.Join(doc.Language, ", "),
-	}
-
-	if len(doc.Publisher) > 0 {
-		result.Publisher = doc.Publisher[0]
-	}
-	if len(doc.ISBN) > 0 {
-		result.ISBN13 = doc.ISBN[0]
-	}
-	if doc.CoverI > 0 {
-		result.CoverURL = fmt.Sprintf("https://covers.openlibrary.org/b/id/%d-L.jpg", doc.CoverI)
-	}
-
-	return &result, nil
+	return &SearchResultList{
+		Results:  results,
+		Total:    searchResp.NumFound,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }

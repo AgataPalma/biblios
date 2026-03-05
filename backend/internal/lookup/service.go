@@ -40,21 +40,20 @@ func (s *Service) LookupByISBN(ctx context.Context, isbn string) (*GoogleBooksRe
 	return result, nil
 }
 
-func (s *Service) LookupByTitleAuthor(ctx context.Context, title string, author string) (*GoogleBooksResult, error) {
-	// Try Google Books first
-	var result *GoogleBooksResult
+func (s *Service) LookupByTitleAuthor(ctx context.Context, title string, author string, page int) (*SearchResultList, error) {
+	var result *SearchResultList
 	var err error
 
-	result, err = s.google.SearchByTitleAuthor(ctx, title, author)
+	result, err = s.google.SearchByTitleAuthor(ctx, title, author, page)
 	if err != nil {
 		slog.Warn("Google Books title/author lookup failed, trying OpenLibrary", "error", err)
 	}
-	if result != nil {
+	if result != nil && len(result.Results) > 0 {
 		return result, nil
 	}
 
 	// Fallback to OpenLibrary
-	result, err = s.openLibrary.SearchByTitleAuthor(ctx, title, author)
+	result, err = s.openLibrary.SearchByTitleAuthor(ctx, title, author, page)
 	if err != nil {
 		return nil, fmt.Errorf("both lookup services failed: %w", err)
 	}

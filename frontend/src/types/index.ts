@@ -76,6 +76,13 @@ export interface AuthResponse {
     user: User
 }
 
+export interface LookupResultsPage {
+    results: LookupResult[]
+    total: number
+    page: number
+    page_size: number
+}
+
 export interface LookupResult {
     title: string
     authors: string[]

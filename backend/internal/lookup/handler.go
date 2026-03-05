@@ -3,6 +3,7 @@ package lookup
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 )
 
 type Handler struct {
@@ -18,29 +19,47 @@ func (h *Handler) Lookup(w http.ResponseWriter, r *http.Request) {
 	var title string = r.URL.Query().Get("title")
 	var author string = r.URL.Query().Get("author")
 
-	var result *GoogleBooksResult
-	var err error
-
 	if isbn != "" {
+		var result *GoogleBooksResult
+		var err error
 		result, err = h.service.LookupByISBN(r.Context(), isbn)
-	} else if title != "" {
-		result, err = h.service.LookupByTitleAuthor(r.Context(), title, author)
-	} else {
-		writeError(w, http.StatusBadRequest, "provide isbn or title query parameter")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "lookup failed")
+			return
+		}
+		if result == nil {
+			writeError(w, http.StatusNotFound, "book not found in external APIs")
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 		return
 	}
 
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "lookup failed")
+	if title != "" {
+		var page int = 1
+		var err error
+		if p := r.URL.Query().Get("page"); p != "" {
+			page, err = strconv.Atoi(p)
+			if err != nil || page < 1 {
+				page = 1
+			}
+		}
+
+		var result *SearchResultList
+		result, err = h.service.LookupByTitleAuthor(r.Context(), title, author, page)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "lookup failed")
+			return
+		}
+		if result == nil || len(result.Results) == 0 {
+			writeError(w, http.StatusNotFound, "no books found in external APIs")
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 		return
 	}
 
-	if result == nil {
-		writeError(w, http.StatusNotFound, "book not found in external APIs")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, result)
+	writeError(w, http.StatusBadRequest, "provide isbn or title query parameter")
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

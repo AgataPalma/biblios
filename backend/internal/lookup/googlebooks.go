@@ -28,7 +28,8 @@ type GoogleBooksResult struct {
 }
 
 type googleBooksResponse struct {
-	Items []struct {
+	TotalItems int `json:"totalItems"`
+	Items      []struct {
 		VolumeInfo struct {
 			Title         string   `json:"title"`
 			Authors       []string `json:"authors"`
@@ -49,6 +50,13 @@ type googleBooksResponse struct {
 	} `json:"items"`
 }
 
+type SearchResultList struct {
+	Results  []GoogleBooksResult `json:"results"`
+	Total    int                 `json:"total"`
+	Page     int                 `json:"page"`
+	PageSize int                 `json:"page_size"`
+}
+
 func newGoogleBooksClient(apiKey string) *googleBooksClient {
 	return &googleBooksClient{
 		apiKey:     apiKey,
@@ -61,9 +69,69 @@ func (c *googleBooksClient) SearchByISBN(ctx context.Context, isbn string) (*Goo
 	return c.search(ctx, query)
 }
 
-func (c *googleBooksClient) SearchByTitleAuthor(ctx context.Context, title string, author string) (*GoogleBooksResult, error) {
+// Keep SearchByISBN unchanged — it calls the existing search() method
+
+// Replace SearchByTitleAuthor:
+func (c *googleBooksClient) SearchByTitleAuthor(ctx context.Context, title string, author string, page int) (*SearchResultList, error) {
+	var pageSize int = 20
+	var startIndex int = (page - 1) * pageSize
 	var query string = fmt.Sprintf("intitle:%s+inauthor:%s", url.QueryEscape(title), url.QueryEscape(author))
-	return c.search(ctx, query)
+	var reqURL string = fmt.Sprintf(
+		"https://www.googleapis.com/books/v1/volumes?q=%s&key=%s&maxResults=%d&startIndex=%d",
+		query, c.apiKey, pageSize, startIndex,
+	)
+
+	var req *http.Request
+	var err error
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	var resp *http.Response
+	resp, err = c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call Google Books API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var gbResp googleBooksResponse
+	err = json.NewDecoder(resp.Body).Decode(&gbResp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	var results []GoogleBooksResult
+	for _, item := range gbResp.Items {
+		var v = item.VolumeInfo
+		var r GoogleBooksResult = GoogleBooksResult{
+			Title:         v.Title,
+			Authors:       v.Authors,
+			Publisher:     v.Publisher,
+			PublishedDate: v.PublishedDate,
+			Description:   v.Description,
+			PageCount:     v.PageCount,
+			Language:      v.Language,
+			CoverURL:      v.ImageLinks.Thumbnail,
+			Categories:    v.Categories,
+		}
+		for _, id := range v.IndustryIdentifiers {
+			if id.Type == "ISBN_13" {
+				r.ISBN13 = id.Identifier
+			}
+			if id.Type == "ISBN_10" {
+				r.ISBN10 = id.Identifier
+			}
+		}
+		results = append(results, r)
+	}
+
+	return &SearchResultList{
+		Results:  results,
+		Total:    gbResp.TotalItems,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }
 
 func (c *googleBooksClient) search(ctx context.Context, query string) (*GoogleBooksResult, error) {

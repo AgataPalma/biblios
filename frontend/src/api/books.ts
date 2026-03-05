@@ -1,6 +1,5 @@
 import apiClient from './client'
-import type { Book, LookupResult, Submission } from '../types'
-
+import type { Book, LookupResult, LookupResultsPage, Submission } from '../types'
 export interface BooksResponse {
     books: Book[]
     total: number
@@ -46,10 +45,14 @@ export async function lookupByISBN(isbn: string): Promise<LookupResult> {
     return response.data
 }
 
-export async function lookupByTitleAuthor(title: string, author?: string): Promise<LookupResult> {
-    const params = new URLSearchParams({ title })
+export async function lookupByTitleAuthor(
+    title: string,
+    author?: string,
+    page: number = 1
+): Promise<LookupResultsPage> {
+    const params = new URLSearchParams({ title, page: String(page) })
     if (author) params.append('author', author)
-    const response = await apiClient.get<LookupResult>(`/books/lookup?${params.toString()}`)
+    const response = await apiClient.get<LookupResultsPage>(`/books/lookup?${params.toString()}`)
     return response.data
 }
 

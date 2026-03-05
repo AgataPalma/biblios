@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import { Card, Badge, Spinner } from '../components'
+import type { LookupResultsPage } from '../types'
 import { lookupByISBN, lookupByTitleAuthor, checkDuplicate, submitBook as submitBookApi } from '../api/books'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -32,7 +33,7 @@ interface ExistingEdition {
 
 // 'mode' drives the entire page: book or audiobook
 type Mode       = 'book' | 'audiobook'
-type Step = 'pick' | 'search' | 'preview' | 'manual' | 'details' | 'done'
+type Step = 'pick' | 'search' | 'results' | 'preview' | 'manual' | 'details' | 'done'
 type SearchMode = 'isbn' | 'title'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -50,13 +51,17 @@ async function addCopyToLibrary(
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 
+
 const STEPS: { key: Step; label: string }[] = [
     { key: 'pick',    label: 'Type'    },
     { key: 'search',  label: 'Search'  },
+    { key: 'results', label: 'Results' },
     { key: 'preview', label: 'Preview' },
     { key: 'details', label: 'Details' },
     { key: 'done',    label: 'Done'    },
 ]
+
+
 
 function StepIndicator({ current }: { current: Step }) {
     const currentIndex = STEPS.findIndex(s => s.key === current)
@@ -118,14 +123,17 @@ function PrimaryButton({ label, onClick, isLoading, disabled, fullWidth }: {
     )
 }
 
-function SecondaryButton({ label, onClick }: { label: string; onClick: () => void }) {
+
+
+function SecondaryButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
     return (
-        <button onClick={onClick} style={{
+        <button onClick={onClick} disabled={disabled} style={{
+            opacity: disabled ? 0.4 : 1,
             padding: '10px 18px',
             background: 'var(--color-surface-alt)', color: 'var(--color-text)',
             border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)',
             fontSize: '13px', fontWeight: 500, fontFamily: 'var(--font-body)',
-            cursor: 'pointer', transition: 'var(--transition)',
+            cursor: disabled ? 'not-allowed' : 'pointer', transition: 'var(--transition)',
         }}>
             {label}
         </button>
@@ -271,10 +279,14 @@ export default function AddBookPage() {
     const [manualDesc,      setManualDesc]      = useState('')
     const [manualError,     setManualError]     = useState('')
 
+    const [searchResults, setSearchResults]     = useState<BookLookup[]>([])
+    const [searchTotal, setSearchTotal]         = useState(0)
+    const [searchPage, setSearchPage]           = useState(1)
+
     // ── Search ──────────────────────────────────────────────────────────────────
 
     const searchMutation = useMutation({
-        mutationFn: async (): Promise<BookLookup | null> => {
+        mutationFn: async (): Promise<BookLookup | LookupResultsPage | null> => {
             setSearchError('')
             if (searchMode === 'isbn') {
                 const cleanIsbn = isbn.replace(/[-\s]/g, '')
@@ -286,22 +298,35 @@ export default function AddBookPage() {
                 return result as unknown as BookLookup | null
             } else {
                 setExistingEdition(null)
-                // Don't send empty author — causes 500 on backend
                 const author = authorQuery.trim() || ''
-                const result = await lookupByTitleAuthor(titleQuery.trim(), author)
-                return result as unknown as BookLookup | null
+                const data = await lookupByTitleAuthor(titleQuery.trim(), author, searchPage)
+                setSearchResults(data.results as unknown as BookLookup[])
+                setSearchTotal(data.total)
+                return data  // navigation handled in onSuccess via searchResults
             }
         },
         onSuccess: (result) => {
+            if (searchMode === 'title') {
+                const data = result as unknown as { results: BookLookup[]; total: number }
+                if (!data?.results?.length) {
+                    setManualTitle(titleQuery)
+                    setManualAuthors(authorQuery)
+                    setStep('manual')
+                } else {
+                    setStep('results')
+                }
+                return
+            }
+            // ISBN path unchanged
             if (!result) {
-                // Pre-fill manual form with what user typed, go to manual entry
-                if (searchMode === 'isbn') setManualIsbn(isbn.replace(/[-\s]/g, ''))
-                else { setManualTitle(titleQuery); setManualAuthors(authorQuery) }
+                setManualIsbn(isbn.replace(/[-\s]/g, ''))
                 setStep('manual')
                 return
             }
-            setLookupResult(result)
-            setLanguage(result.language ?? 'en')
+            const book = result as BookLookup
+            setLookupResult(book)
+            setLanguage(book.language ?? 'en')
+
             setStep('preview')
         },
         onError: () => {
@@ -382,6 +407,16 @@ export default function AddBookPage() {
         },
         onError: () => setManualError('Submission failed. Please try again.'),
     })
+
+
+    function handleResultsPageChange(newPage: number) {
+        setSearchPage(newPage)
+        lookupByTitleAuthor(titleQuery.trim(), authorQuery.trim() || undefined, newPage)
+            .then(data => {
+                setSearchResults(data.results as unknown as BookLookup[])
+                setSearchTotal(data.total)
+            })
+    }
 
     // ── Reset ────────────────────────────────────────────────────────────────────
 
@@ -604,6 +639,95 @@ export default function AddBookPage() {
                         Can't find it? Enter details manually →
                     </button>
                 </Card>
+            )}
+
+            {/* ── STEP: Results ── */}
+            {step === 'results' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <Card padding="lg">
+                        <p style={{
+                            margin: '0 0 4px', fontSize: '13px',
+                            color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)',
+                        }}>
+                            {searchTotal} result{searchTotal !== 1 ? 's' : ''} for "{titleQuery}"
+                            {authorQuery ? ` by "${authorQuery}"` : ''}
+                        </p>
+                    </Card>
+
+                    {searchResults.map((book, i) => (
+                        <Card key={i} padding="md">
+                            <button
+                                onClick={() => {
+                                    setLookupResult(book)
+                                    setLanguage(book.language ?? 'en')
+                                    setStep('preview')
+                                }}
+                                style={{
+                                    display: 'flex', gap: '12px', width: '100%',
+                                    background: 'none', border: 'none', cursor: 'pointer',
+                                    textAlign: 'left', padding: 0,
+                                }}
+                            >
+                                <CoverPreview coverUrl={book.cover_url} title={book.title} size="sm" />
+                                <div style={{ flex: 1 }}>
+                                    <p style={{
+                                        margin: '0 0 4px', fontSize: '14px', fontWeight: 600,
+                                        color: 'var(--color-text)', fontFamily: 'var(--font-heading)',
+                                    }}>
+                                        {book.title}
+                                    </p>
+                                    <p style={{
+                                        margin: '0 0 6px', fontSize: '12px',
+                                        color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)',
+                                    }}>
+                                        {book.authors?.join(', ') || 'Unknown author'}
+                                        {book.published_date ? ` · ${book.published_date.slice(0, 4)}` : ''}
+                                    </p>
+                                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                        {book.publisher && <Badge label={book.publisher} variant="muted" size="sm" />}
+                                        {book.isbn_13 && <Badge label={`ISBN ${book.isbn_13}`} variant="default" size="sm" />}
+                                    </div>
+                                </div>
+                            </button>
+                        </Card>
+                    ))}
+
+                    {/* Pagination */}
+                    {searchTotal > 20 && (
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '8px' }}>
+                            <SecondaryButton
+                                label="← Prev"
+                                onClick={() => handleResultsPageChange(searchPage - 1)}
+                                disabled={searchPage === 1}
+                            />
+                            <span style={{
+                                alignSelf: 'center', fontSize: '13px',
+                                color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)',
+                            }}>
+                    Page {searchPage} of {Math.ceil(searchTotal / 20)}
+                </span>
+                            <SecondaryButton
+                                label="Next →"
+                                onClick={() => handleResultsPageChange(searchPage + 1)}
+                                disabled={searchPage >= Math.ceil(searchTotal / 20)}
+                            />
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                        <SecondaryButton label="← Back" onClick={() => setStep('search')} />
+                        <button
+                            onClick={() => { setManualTitle(titleQuery); setManualAuthors(authorQuery); setStep('manual') }}
+                            style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                color: 'var(--color-text-muted)', fontSize: '12px',
+                                fontFamily: 'var(--font-body)', textDecoration: 'underline', padding: '4px',
+                            }}
+                        >
+                            None of these — enter manually
+                        </button>
+                    </div>
+                </div>
             )}
 
             {/* ── STEP: Preview ── */}
