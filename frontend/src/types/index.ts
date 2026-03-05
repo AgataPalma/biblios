@@ -83,6 +83,15 @@ export interface LookupResultsPage {
     page_size: number
 }
 
+export interface LookupFilters {
+    language?: string
+    publisher?: string
+    author?: string
+    yearFrom?: number
+    yearTo?: number
+    format?: string   // for future use — APIs don't return format, but we can filter by it post-fetch
+}
+
 export interface LookupResult {
     title: string
     authors: string[]

@@ -107,13 +107,16 @@ func (c *openLibraryClient) SearchByISBN(ctx context.Context, isbn string) (*Goo
 	return &result, nil
 }
 
-func (c *openLibraryClient) SearchByTitleAuthor(ctx context.Context, title string, author string, page int) (*SearchResultList, error) {
+func (c *openLibraryClient) SearchByTitleAuthor(ctx context.Context, title string, author string, page int, lang string) (*SearchResultList, error) {
 	var pageSize int = 20
 	var offset int = (page - 1) * pageSize
 	var reqURL string = fmt.Sprintf(
 		"https://openlibrary.org/search.json?title=%s&author=%s&limit=%d&offset=%d",
 		url.QueryEscape(title), url.QueryEscape(author), pageSize, offset,
 	)
+	if lang != "" {
+		reqURL += "&langRestrict=" + lang
+	}
 
 	var req *http.Request
 	var err error

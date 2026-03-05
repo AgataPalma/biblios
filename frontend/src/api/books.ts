@@ -1,5 +1,6 @@
 import apiClient from './client'
 import type { Book, LookupResult, LookupResultsPage, Submission } from '../types'
+
 export interface BooksResponse {
     books: Book[]
     total: number

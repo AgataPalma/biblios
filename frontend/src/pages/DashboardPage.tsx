@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
 import { Card, Badge, Spinner, EmptyState } from '../components'
-import { getMyBooks, listBooks } from '../api/books'
+import { getMyBooks, /*listBooks*/ } from '../api/books'
 
 export default function DashboardPage() {
     const { user } = useAuth()
@@ -13,10 +13,10 @@ export default function DashboardPage() {
         queryFn: () => getMyBooks(1, 4),
     })
 
-    const { data: allBooks, isLoading: loadingAll } = useQuery({
+  /*  const { data: allBooks, isLoading: loadingAll } = useQuery({
         queryKey: ['books', 1],
         queryFn: () => listBooks(1, 6),
-    })
+    })*/
 
     const hour = new Date().getHours()
     const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
@@ -49,7 +49,7 @@ export default function DashboardPage() {
                     color: 'var(--color-text-muted)',
                     fontFamily: 'var(--font-body)',
                 }}>
-                    Here's what's happening in your library today.
+                    Últimas actualizações da tua biblioteca.
                 </p>
             </div>
 
@@ -70,13 +70,13 @@ export default function DashboardPage() {
                         sub: 'in your library',
                         action: () => navigate('/library'),
                     },
-                    {
+                    /*{
                         icon: '🌐',
                         label: 'Catalogue',
                         value: loadingAll ? '…' : String(allBooks?.total ?? 0),
                         sub: 'approved books',
                         action: () => navigate('/books'),
-                    },
+                    },*/
                     {
                         icon: '🎭',
                         label: 'Role',
@@ -273,7 +273,7 @@ export default function DashboardPage() {
                             Browse all →
                         </button>
                     </div>
-
+                    {/*
                     {loadingAll ? (
                         <div style={{ padding: '24px 0' }}>
                             <Spinner size="sm" />
@@ -346,7 +346,9 @@ export default function DashboardPage() {
                                 </div>
                             ))}
                         </div>
-                    )}
+
+
+                    )*/}
                 </Card>
 
                 {/* Quick actions */}

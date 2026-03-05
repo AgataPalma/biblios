@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import { Card, Badge, Spinner } from '../components'
-import type { LookupResultsPage } from '../types'
+import type { LookupResultsPage, LookupFilters } from '../types'
 import { lookupByISBN, lookupByTitleAuthor, checkDuplicate, submitBook as submitBookApi } from '../api/books'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -283,6 +283,9 @@ export default function AddBookPage() {
     const [searchTotal, setSearchTotal]         = useState(0)
     const [searchPage, setSearchPage]           = useState(1)
 
+    const [filters, setFilters] = useState<LookupFilters>({})
+    const [showFilters, setShowFilters] = useState(false)
+
     // ── Search ──────────────────────────────────────────────────────────────────
 
     const searchMutation = useMutation({
@@ -298,17 +301,16 @@ export default function AddBookPage() {
                 return result as unknown as BookLookup | null
             } else {
                 setExistingEdition(null)
-                const author = authorQuery.trim() || ''
-                const data = await lookupByTitleAuthor(titleQuery.trim(), author, searchPage)
-                setSearchResults(data.results as unknown as BookLookup[])
-                setSearchTotal(data.total)
-                return data  // navigation handled in onSuccess via searchResults
+                const data = await performTitleSearch(searchPage)
+                return data
             }
         },
+        // CHANGE onSuccess:
         onSuccess: (result) => {
             if (searchMode === 'title') {
                 const data = result as unknown as { results: BookLookup[]; total: number }
-                if (!data?.results?.length) {
+                if (!data?.results?.length && step !== 'results') {
+                    // Only redirect to manual if we're not already showing results
                     setManualTitle(titleQuery)
                     setManualAuthors(authorQuery)
                     setStep('manual')
@@ -326,7 +328,6 @@ export default function AddBookPage() {
             const book = result as BookLookup
             setLookupResult(book)
             setLanguage(book.language ?? 'en')
-
             setStep('preview')
         },
         onError: () => {
@@ -418,6 +419,14 @@ export default function AddBookPage() {
             })
     }
 
+    async function performTitleSearch(page: number) {
+        const author = authorQuery.trim() || undefined
+        const data = await lookupByTitleAuthor(titleQuery.trim(), author, page)
+        setSearchResults(data.results as unknown as BookLookup[])
+        setSearchTotal(data.total)
+        return data
+    }
+
     // ── Reset ────────────────────────────────────────────────────────────────────
 
     function reset() {
@@ -429,11 +438,24 @@ export default function AddBookPage() {
         setLanguage('en'); setDetailsError(''); setDoneMessage('')
         setManualTitle(''); setManualAuthors(''); setManualIsbn('')
         setManualPublisher(''); setManualPages(''); setManualDesc(''); setManualError('')
+        setFilters({})
+        setShowFilters(false)
+        setSearchResults([])
+        setSearchTotal(0)
+        setSearchPage(1)
     }
 
     // ── Render ───────────────────────────────────────────────────────────────────
 
     const isAudiobook = mode === 'audiobook'
+    const filteredResults = searchResults.filter(book => {
+        if (filters.language && book.language !== filters.language) return false
+        if (filters.publisher && !book.publisher?.toLowerCase().includes(filters.publisher.toLowerCase())) return false
+        if (filters.author && !book.authors?.some(a => a.toLowerCase().includes(filters.author!.toLowerCase()))) return false
+        if (filters.yearFrom && (!book.published_date || parseInt(book.published_date) < filters.yearFrom)) return false
+        if (filters.yearTo && (!book.published_date || parseInt(book.published_date) > filters.yearTo)) return false
+        return true
+    })
 
     return (
         <div style={{
@@ -649,12 +671,109 @@ export default function AddBookPage() {
                             margin: '0 0 4px', fontSize: '13px',
                             color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)',
                         }}>
-                            {searchTotal} result{searchTotal !== 1 ? 's' : ''} for "{titleQuery}"
+                            {filteredResults.length} of {searchTotal} result{searchTotal !== 1 ? 's' : ''} for "{titleQuery}"
                             {authorQuery ? ` by "${authorQuery}"` : ''}
                         </p>
                     </Card>
 
-                    {searchResults.map((book, i) => (
+                    {/* Filters toggle */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <button
+                            onClick={() => setShowFilters(v => !v)}
+                            style={{
+                                background: 'none', border: '1px solid var(--color-border)',
+                                borderRadius: 'var(--border-radius)', padding: '6px 12px',
+                                fontSize: '12px', cursor: 'pointer', fontFamily: 'var(--font-body)',
+                                color: 'var(--color-text-muted)',
+                            }}
+                        >
+                            {showFilters ? 'Hide filters ▲' : 'Filter results ▼'}
+                        </button>
+                    </div>
+
+                    {showFilters && (
+                        <Card padding="md">
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <div>
+                                    <FieldLabel label="Language" />
+                                    <select
+                                        value={filters.language ?? ''}
+                                        onChange={e => setFilters(f => ({ ...f, language: e.target.value || undefined }))}
+                                        style={{
+                                            width: '100%', padding: '8px 10px',
+                                            background: 'var(--input-bg)', border: '1px solid var(--color-border)',
+                                            borderRadius: 'var(--border-radius)', color: 'var(--color-text)',
+                                            fontSize: '13px', fontFamily: 'var(--font-body)',
+                                        }}
+                                    >
+                                        <option value="">Any</option>
+                                        <option value="en">English</option>
+                                        <option value="pt">Portuguese (Portugal)</option>
+                                        <option value="pt-BR">Portuguese (Brazil)</option>
+                                        <option value="es">Spanish</option>
+                                        <option value="fr">French</option>
+                                        <option value="de">German</option>
+                                        <option value="it">Italian</option>
+                                        <option value="ja">Japanese</option>
+                                        <option value="zh">Chinese</option>
+                                        <option value="ru">Russian</option>
+                                        <option value="ar">Arabic</option>
+                                        <option value="nl">Dutch</option>
+                                        <option value="ko">Korean</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <FieldLabel label="Publisher" />
+                                    <TextInput
+                                        value={filters.publisher ?? ''}
+                                        onChange={v => setFilters(f => ({ ...f, publisher: v || undefined }))}
+                                        placeholder="e.g. Bloomsbury"
+                                    />
+                                </div>
+
+                                {!authorQuery.trim() && (
+                                    <div>
+                                        <FieldLabel label="Author" />
+                                        <TextInput
+                                            value={filters.author ?? ''}
+                                            onChange={v => setFilters(f => ({ ...f, author: v || undefined }))}
+                                            placeholder="e.g. Rowling"
+                                        />
+                                    </div>
+                                )}
+
+                                <div>
+                                    <FieldLabel label="Year from" />
+                                    <TextInput
+                                        value={filters.yearFrom?.toString() ?? ''}
+                                        onChange={v => setFilters(f => ({ ...f, yearFrom: v ? parseInt(v) : undefined }))}
+                                        placeholder="e.g. 1990"
+                                        type="number"
+                                    />
+                                </div>
+
+                                <div>
+                                    <FieldLabel label="Year to" />
+                                    <TextInput
+                                        value={filters.yearTo?.toString() ?? ''}
+                                        onChange={v => setFilters(f => ({ ...f, yearTo: v ? parseInt(v) : undefined }))}
+                                        placeholder="e.g. 2024"
+                                        type="number"
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: '12px', display: 'flex', gap: '8px' }}>
+                                <SecondaryButton
+                                    label="Clear filters"
+                                    onClick={() => setFilters({})}
+                                />
+                            </div>
+                        </Card>
+                    )}
+
+                    {filteredResults.map((book, i) => (
                         <Card key={i} padding="md">
                             <button
                                 onClick={() => {
@@ -919,7 +1038,8 @@ export default function AddBookPage() {
                                 }}
                             >
                                 {[
-                                    { code: 'en', label: 'English' }, { code: 'pt', label: 'Portuguese' },
+                                    { code: 'en', label: 'English' }, { code: 'pt',    label: 'Portuguese (Portugal)' },
+                                    { code: 'pt-BR', label: 'Portuguese (Brazil)'   },
                                     { code: 'es', label: 'Spanish' }, { code: 'fr', label: 'French' },
                                     { code: 'de', label: 'German' },  { code: 'it', label: 'Italian' },
                                     { code: 'ja', label: 'Japanese' },{ code: 'zh', label: 'Chinese' },

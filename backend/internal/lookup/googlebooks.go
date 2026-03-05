@@ -72,7 +72,7 @@ func (c *googleBooksClient) SearchByISBN(ctx context.Context, isbn string) (*Goo
 // Keep SearchByISBN unchanged — it calls the existing search() method
 
 // Replace SearchByTitleAuthor:
-func (c *googleBooksClient) SearchByTitleAuthor(ctx context.Context, title string, author string, page int) (*SearchResultList, error) {
+func (c *googleBooksClient) SearchByTitleAuthor(ctx context.Context, title string, author string, page int, lang string) (*SearchResultList, error) {
 	var pageSize int = 20
 	var startIndex int = (page - 1) * pageSize
 	var query string = fmt.Sprintf("intitle:%s+inauthor:%s", url.QueryEscape(title), url.QueryEscape(author))
@@ -80,6 +80,9 @@ func (c *googleBooksClient) SearchByTitleAuthor(ctx context.Context, title strin
 		"https://www.googleapis.com/books/v1/volumes?q=%s&key=%s&maxResults=%d&startIndex=%d",
 		query, c.apiKey, pageSize, startIndex,
 	)
+	if lang != "" {
+		reqURL += "&langRestrict=" + lang
+	}
 
 	var req *http.Request
 	var err error
