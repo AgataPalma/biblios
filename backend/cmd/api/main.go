@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"fmt"
 	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/AgataPalma/biblios/internal/auth"
@@ -18,10 +19,17 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 )
+
+//go:embed swagger-ui
+var swaggerFiles embed.FS
+
+//go:embed docs/openapi.yaml
+var openAPISpec []byte
 
 func main() {
 	//logs
@@ -166,6 +174,16 @@ func main() {
 			r.With(middleware.RequireRole(apictx.RoleAdmin)).
 				Post("/admin/backfill-covers", bookHandler.BackfillCovers)
 		})
+	})
+
+	// Swagger UI
+	swaggerDist, _ := fs.Sub(swaggerFiles, "swagger-ui")
+	r.Handle("/api/docs/ui/*", http.StripPrefix("/api/docs/ui", http.FileServer(http.FS(swaggerDist))))
+
+	// OpenAPI spec
+	r.Get("/api/docs/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/yaml")
+		w.Write(openAPISpec)
 	})
 
 	// Health check
