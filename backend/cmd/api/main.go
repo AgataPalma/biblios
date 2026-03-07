@@ -93,6 +93,8 @@ func main() {
 	// Repositories and services
 	var userRepo *users.Repository = users.NewRepository(db)
 	var userService *users.Service = users.NewService(userRepo)
+	var userHandler *users.Handler = users.NewHandler(userService)
+
 	var authHandler *auth.Handler = auth.NewHandler(userService, cfg.JWTSecret, tStore)
 
 	// Books
@@ -129,17 +131,22 @@ func main() {
 	// Routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public routes
-		r.Post("/auth/register", authHandler.Register)
-		r.Post("/auth/login", authHandler.Login)
+		r.Post("/auth/register", authHandler.Register) //Register
+		r.Post("/auth/login", authHandler.Login)       //Login
 
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Authenticate(cfg.JWTSecret, tStore))
 
 			// Auth
-			r.Get("/auth/me", authHandler.Me)
-			r.Post("/auth/logout", authHandler.Logout)
-			r.Put("/users/me/theme", authHandler.UpdateTheme)
+			r.Get("/auth/me", userHandler.Me)          //User
+			r.Post("/auth/logout", authHandler.Logout) //Logout
+
+			//User
+			r.Put("/users/me/theme", userHandler.UpdateTheme)      //UpdateTheme
+			r.Put("/users/me", userHandler.Me)                     //UpdateUser
+			r.Delete("/users/me", userHandler.Me)                  //DeleteUser
+			r.Put("users/me/password", userHandler.UpdatePassword) //UpdatePassword
 
 			// Books - all users
 			r.Get("/books", bookHandler.ListBooks)

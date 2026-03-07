@@ -2,7 +2,6 @@ package auth
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/AgataPalma/biblios/internal/tokenstore"
 	"net/http"
@@ -35,6 +34,10 @@ type loginResponse struct {
 	User  users.User `json:"user"`
 }
 
+type updateThemeRequest struct {
+	Theme string `json:"theme"`
+}
+
 //----------------------------Functions---------------------------------------------//
 
 func NewHandler(userService *users.Service, jwtSecret string, tokenStore *tokenstore.Store) *Handler {
@@ -44,6 +47,8 @@ func NewHandler(userService *users.Service, jwtSecret string, tokenStore *tokens
 		tokenStore:  tokenStore,
 	}
 }
+
+// POST /api/v1/auth/register
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
@@ -91,6 +96,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, loginResponse{Token: token, User: user})
 }
 
+// POST /api/v1/auth/login
+
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	var err error
@@ -126,6 +133,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, loginResponse{Token: token, User: user})
 }
 
+// POST /api/v1/auth/logout
+
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
@@ -139,60 +148,6 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "logged out successfully"})
-}
-
-func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
-	var claims apictx.Claims
-	var ok bool
-
-	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	var user users.User
-	var err error
-	user, err = h.userService.GetByID(r.Context(), claims.UserID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get user")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, user)
-}
-
-type updateThemeRequest struct {
-	Theme string `json:"theme"`
-}
-
-func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
-	var claims apictx.Claims
-	var ok bool
-	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	var req updateThemeRequest
-	var err error = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil || req.Theme == "" {
-		writeError(w, http.StatusBadRequest, "theme is required")
-		return
-	}
-
-	err = h.userService.UpdateTheme(r.Context(), claims.UserID, req.Theme)
-	if err != nil {
-		if err.Error() == fmt.Sprintf("invalid theme: %s", req.Theme) {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to update theme")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"message": "theme updated"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
