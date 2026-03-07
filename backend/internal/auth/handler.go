@@ -11,71 +11,18 @@ import (
 	"github.com/AgataPalma/biblios/internal/users"
 )
 
+//-------------------Types------------------------
+
 type Handler struct {
 	userService *users.Service
 	jwtSecret   string
 	tokenStore  *tokenstore.Store
 }
 
-func NewHandler(userService *users.Service, jwtSecret string, tokenStore *tokenstore.Store) *Handler {
-	return &Handler{
-		userService: userService,
-		jwtSecret:   jwtSecret,
-		tokenStore:  tokenStore,
-	}
-}
-
 type registerRequest struct {
 	Email    string `json:"email"`
 	Username string `json:"username"`
 	Password string `json:"password"`
-}
-
-type registerResponse struct {
-	User users.User `json:"user"`
-}
-
-func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
-	var req registerRequest
-	var err error
-
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	var input users.RegisterInput = users.RegisterInput{
-		Email:    req.Email,
-		Username: req.Username,
-		Password: req.Password,
-	}
-
-	err = users.ValidateRegisterInput(input)
-	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err.Error())
-		return
-	}
-
-	var user users.User
-	user, err = h.userService.Register(r.Context(), input)
-	if err != nil {
-		if err.Error() == "email already registered" {
-			writeError(w, http.StatusConflict, err.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to create user")
-		return
-	}
-
-	var token string
-	token, err = GenerateToken(user.ID, user.Role, h.jwtSecret)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
-		return
-	}
-
-	writeJSON(w, http.StatusCreated, loginResponse{Token: token, User: user})
 }
 
 type loginRequest struct {
@@ -88,6 +35,62 @@ type loginResponse struct {
 	User  users.User `json:"user"`
 }
 
+//----------------------------Functions---------------------------------------------//
+
+func NewHandler(userService *users.Service, jwtSecret string, tokenStore *tokenstore.Store) *Handler {
+	return &Handler{
+		userService: userService,
+		jwtSecret:   jwtSecret,
+		tokenStore:  tokenStore,
+	}
+}
+
+func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+	var req registerRequest
+	var err error
+
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	input := users.RegisterInput{
+		Email:    req.Email,
+		Username: req.Username,
+		Password: req.Password,
+	}
+
+	err = users.ValidateRegisterInput(input)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	user, err := h.userService.Register(r.Context(), input)
+	if err != nil {
+		if err.Error() == "email already registered" {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to create user")
+		return
+	}
+
+	token, jti, err := GenerateToken(user.ID, user.Role, h.jwtSecret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	if err = h.tokenStore.StoreToken(r.Context(), user.ID, jti, 24*time.Hour); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to store session")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, loginResponse{Token: token, User: user})
+}
+
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	var err error
@@ -98,22 +101,25 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var input users.LoginInput = users.LoginInput{
+	input := users.LoginInput{
 		Email:    req.Email,
 		Password: req.Password,
 	}
 
-	var user users.User
-	user, err = h.userService.Login(r.Context(), input)
+	user, err := h.userService.Login(r.Context(), input)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
-	var token string
-	token, err = GenerateToken(user.ID, user.Role, h.jwtSecret)
+	token, jti, err := GenerateToken(user.ID, user.Role, h.jwtSecret)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	if err = h.tokenStore.StoreToken(r.Context(), user.ID, jti, 24*time.Hour); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to store session")
 		return
 	}
 
@@ -121,18 +127,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	var claims apictx.Claims
-	var ok bool
-
-	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	var remaining time.Duration = time.Until(claims.ExpiresAt.Time)
-	var err error = h.tokenStore.RevokeToken(r.Context(), claims.ID, remaining)
-	if err != nil {
+	if err := h.tokenStore.DeleteToken(r.Context(), claims.UserID, claims.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to logout")
 		return
 	}

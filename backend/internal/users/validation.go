@@ -2,24 +2,31 @@ package users
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
+func isEmailValid(e string) bool {
+	emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,4}$`)
+	return emailRegex.MatchString(e)
+}
+
 func ValidateRegisterInput(input RegisterInput) error {
 	if strings.TrimSpace(input.Email) == "" {
-		return fmt.Errorf("email is required")
+		return fmt.Errorf("email é obrigatório")
 	}
-	if !strings.Contains(input.Email, "@") {
-		return fmt.Errorf("email is invalid")
+	if !isEmailValid(input.Email) {
+		return fmt.Errorf("email inválido")
 	}
+
 	if strings.TrimSpace(input.Username) == "" {
-		return fmt.Errorf("username is required")
+		return fmt.Errorf("utilizador obrigatório")
 	}
 	if len(input.Username) < 3 {
-		return fmt.Errorf("username must be at least 3 characters")
+		return fmt.Errorf("utilizador tem de conter pelo menos 3 caracteres")
 	}
 	if len(input.Password) < 8 {
-		return fmt.Errorf("password must be at least 8 characters")
+		return fmt.Errorf("password tem de ter pelo menos 8 caracteres")
 	}
 	return nil
 }

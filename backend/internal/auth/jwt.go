@@ -22,16 +22,13 @@ func generateTokenID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func GenerateToken(userID string, role apictx.Role, secret string) (string, error) {
-	var tokenID string
-	var err error
-
-	tokenID, err = generateTokenID()
+func GenerateToken(userID string, role apictx.Role, secret string) (string, string, error) {
+	tokenID, err := generateTokenID()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	var claims apictx.Claims = apictx.Claims{
+	claims := apictx.Claims{
 		UserID: userID,
 		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -41,13 +38,11 @@ func GenerateToken(userID string, role apictx.Role, secret string) (string, erro
 		},
 	}
 
-	var token *jwt.Token = jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	var signed string
-	signed, err = token.SignedString([]byte(secret))
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(secret))
 	if err != nil {
-		return "", fmt.Errorf("failed to sign token: %w", err)
+		return "", "", fmt.Errorf("failed to sign token: %w", err)
 	}
 
-	return signed, nil
+	return signed, tokenID, nil
 }

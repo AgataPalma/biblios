@@ -7,8 +7,16 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+type userRepository interface {
+	ExistsByEmail(ctx context.Context, email string) (bool, error)
+	Insert(ctx context.Context, email, username, passwordHash string) (User, error)
+	FindByEmail(ctx context.Context, email string) (User, error)
+	FindByID(ctx context.Context, id string) (User, error)
+	UpdateTheme(ctx context.Context, userID string, theme string) error
+}
+
 type Service struct {
-	repo *Repository
+	repo userRepository
 }
 
 func NewService(repo *Repository) *Service {

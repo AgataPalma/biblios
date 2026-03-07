@@ -25,8 +25,8 @@ func Authenticate(jwtSecret string, store *tokenstore.Store) func(http.Handler) 
 				return
 			}
 
-			var tokenString string = strings.TrimPrefix(authHeader, "Bearer ")
-			var claims apictx.Claims = apictx.Claims{}
+			var tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+			var claims = apictx.Claims{}
 			var err error
 			var token *jwt.Token
 
@@ -40,14 +40,13 @@ func Authenticate(jwtSecret string, store *tokenstore.Store) func(http.Handler) 
 			}
 
 			// Check if token has been revoked
-			var revoked bool
-			revoked, err = store.IsRevoked(r.Context(), claims.ID)
-			if err != nil || revoked {
-				http.Error(w, `{"error":"token has been revoked"}`, http.StatusUnauthorized)
+			exists, err := store.SessionExists(r.Context(), claims.UserID, claims.ID)
+			if err != nil || !exists {
+				http.Error(w, `{"error":"session not found or expired"}`, http.StatusUnauthorized)
 				return
 			}
 
-			var ctx context.Context = context.WithValue(r.Context(), apictx.UserClaimsKey, claims)
+			var ctx = context.WithValue(r.Context(), apictx.UserClaimsKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
