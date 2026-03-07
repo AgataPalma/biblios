@@ -13,7 +13,7 @@ import (
 func Authenticate(jwtSecret string, store *tokenstore.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var authHeader string = r.Header.Get("Authorization")
+			var authHeader = r.Header.Get("Authorization")
 
 			if authHeader == "" {
 				http.Error(w, `{"error":"missing authorization header"}`, http.StatusUnauthorized)
