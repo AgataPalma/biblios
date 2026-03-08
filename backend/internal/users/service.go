@@ -13,7 +13,7 @@ type userRepository interface {
 	ExistsByEmail(ctx context.Context, email string) (bool, error)
 	ExistsByUsername(ctx context.Context, username string) (bool, error)
 	CreateUser(ctx context.Context, email, username, passwordHash string) (User, error)
-	UpdateUser(ctx context.Context, userID, email, username string) (User, error)
+	UpdateUser(ctx context.Context, userID string, email, username, bio, avatarUrl *string) (User, error)
 	UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error
 	SoftDeleteWithCascade(ctx context.Context, userID string) error
 	FindByEmail(ctx context.Context, email string) (User, error)
@@ -24,26 +24,30 @@ type userRepository interface {
 type Service struct {
 	repo userRepository
 }
+
 type RegisterInput struct {
 	Email    string
 	Username string
 	Password string
 }
+
 type LoginInput struct {
 	Email    string
 	Password string
+}
+
+type UpdateUserInput struct {
+	UserID    string
+	Email     *string
+	Username  *string
+	Bio       *string
+	AvatarUrl *string
 }
 
 type UpdatePasswordInput struct {
 	UserID          string
 	CurrentPassword string
 	NewPassword     string
-}
-
-type UpdateUserInput struct {
-	UserID   string
-	Email    *string
-	Username *string
 }
 
 func NewService(repo *Repository) *Service {
@@ -59,7 +63,6 @@ func isUniqueViolation(err error, constraintName string) bool {
 }
 
 func (s *Service) Register(ctx context.Context, input RegisterInput) (User, error) {
-	// Check if email already exists
 	var existsEmail bool
 	var err error
 
@@ -71,9 +74,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (User, erro
 		return User{}, fmt.Errorf("email already registered")
 	}
 
-	//Check if username already exists
 	var existsUsername bool
-
 	existsUsername, err = s.repo.ExistsByUsername(ctx, input.Username)
 	if err != nil {
 		return User{}, fmt.Errorf("failed to check username: %w", err)
@@ -82,14 +83,12 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (User, erro
 		return User{}, fmt.Errorf("username already taken")
 	}
 
-	// Hash password
 	var hash []byte
 	hash, err = bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return User{}, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Create user
 	var user User
 	user, err = s.repo.CreateUser(ctx, input.Email, input.Username, string(hash))
 	if err != nil {
@@ -105,7 +104,6 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (User, error) {
 
 	user, err = s.repo.FindByEmail(ctx, input.Email)
 	if err != nil {
-		// Don't reveal whether email exists or not
 		return User{}, fmt.Errorf("invalid credentials")
 	}
 
@@ -117,19 +115,11 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (User, error) {
 	return user, nil
 }
 
-func (s *Service) UpdateTheme(ctx context.Context, userID string, theme string) error {
-	return s.repo.UpdateTheme(ctx, userID, theme)
-}
-
-func (s *Service) GetByID(ctx context.Context, id string) (User, error) {
-	return s.repo.FindByID(ctx, id)
-}
-
 func (s *Service) UpdateUser(ctx context.Context, input UpdateUserInput) (User, error) {
 	var user User
 	var err error
 
-	user, err = s.repo.UpdateUser(ctx, input.UserID, input.Email, input.Username)
+	user, err = s.repo.UpdateUser(ctx, input.UserID, input.Email, input.Username, input.Bio, input.AvatarUrl)
 	if err != nil {
 		if isUniqueViolation(err, "users_email_key") {
 			return User{}, fmt.Errorf("email already in use")
@@ -164,6 +154,14 @@ func (s *Service) UpdatePassword(ctx context.Context, input UpdatePasswordInput)
 	}
 
 	return s.repo.UpdatePassword(ctx, input.UserID, string(hash))
+}
+
+func (s *Service) UpdateTheme(ctx context.Context, userID string, theme string) error {
+	return s.repo.UpdateTheme(ctx, userID, theme)
+}
+
+func (s *Service) GetByID(ctx context.Context, id string) (User, error) {
+	return s.repo.FindByID(ctx, id)
 }
 
 func (s *Service) DeleteUser(ctx context.Context, userID string) error {

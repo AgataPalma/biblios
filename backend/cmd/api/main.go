@@ -143,10 +143,10 @@ func main() {
 			r.Post("/auth/logout", authHandler.Logout) //Logout
 
 			//User
-			r.Put("/users/me/theme", userHandler.UpdateTheme)      //UpdateTheme
-			r.Put("/users/me", userHandler.Me)                     //UpdateUser
-			r.Delete("/users/me", userHandler.Me)                  //DeleteUser
-			r.Put("users/me/password", userHandler.UpdatePassword) //UpdatePassword
+			r.Put("/users/me/theme", userHandler.UpdateTheme)       //UpdateTheme
+			r.Put("/users/me", userHandler.UpdateUser)              //UpdateUser
+			r.Delete("/users/me", userHandler.DeleteUser)           //DeleteUser
+			r.Put("/users/me/password", userHandler.UpdatePassword) //UpdatePassword
 
 			// Books - all users
 			r.Get("/books", bookHandler.ListBooks)

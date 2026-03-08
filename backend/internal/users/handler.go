@@ -17,18 +17,13 @@ func NewHandler(service *Service) *Handler {
 
 // Me GET /api/v1/auth/me
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
-	var claims apictx.Claims
-	var ok bool
-
-	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	var user User
-	var err error
-	user, err = h.service.GetByID(r.Context(), claims.UserID)
+	user, err := h.service.GetByID(r.Context(), claims.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get user")
 		return
@@ -37,37 +32,48 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, user)
 }
 
-// UpdateUser PUT /api/v1/users/me
+// UpdateUser PUT /api/v1/users/updateUser
+// Accepts any combination of: email, username, bio, avatar_url.
+// At least one field must be provided. All fields are optional and independent —
+// omitting a field (or sending null) leaves it unchanged via COALESCE in SQL.
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
-	var claims apictx.Claims
-	var ok bool
-	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	var req struct {
-		Email    *string `json:"email"`
-		Username *string `json:"username"`
+		Email     *string `json:"email"`
+		Username  *string `json:"username"`
+		Bio       *string `json:"bio"`
+		AvatarUrl *string `json:"avatar_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Email == nil && req.Username == nil {
-		writeError(w, http.StatusUnprocessableEntity, "The field is mandatory")
+	// Reject requests that send nothing at all
+	if req.Email == nil && req.Username == nil && req.Bio == nil && req.AvatarUrl == nil {
+		writeError(w, http.StatusUnprocessableEntity, "at least one field is required")
 		return
 	}
 
-	var user User
-	var err error
-	user, err = h.service.UpdateUser(r.Context(), UpdateUserInput{
-		UserID:   claims.UserID,
-		Email:    req.Email,
-		Username: req.Username,
+	// Validate bio length if provided
+	if req.Bio != nil && len(*req.Bio) > 500 {
+		writeError(w, http.StatusUnprocessableEntity, "bio must be 500 characters or fewer")
+		return
+	}
+
+	user, err := h.service.UpdateUser(r.Context(), UpdateUserInput{
+		UserID:    claims.UserID,
+		Email:     req.Email,
+		Username:  req.Username,
+		Bio:       req.Bio,
+		AvatarUrl: req.AvatarUrl,
 	})
+
 	if err != nil {
 		switch err.Error() {
 		case "email already in use", "username already in use":
@@ -83,9 +89,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 // UpdatePassword PUT /api/v1/users/me/password
 func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
-	var claims apictx.Claims
-	var ok bool
-	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -109,7 +113,7 @@ func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var err error = h.service.UpdatePassword(r.Context(), UpdatePasswordInput{
+	err := h.service.UpdatePassword(r.Context(), UpdatePasswordInput{
 		UserID:          claims.UserID,
 		CurrentPassword: req.CurrentPassword,
 		NewPassword:     req.NewPassword,
@@ -129,16 +133,13 @@ func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 
 // DeleteUser DELETE /api/v1/users/me
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
-	var claims apictx.Claims
-	var ok bool
-	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	var err error = h.service.DeleteUser(r.Context(), claims.UserID)
-	if err != nil {
+	if err := h.service.DeleteUser(r.Context(), claims.UserID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete account")
 		return
 	}
@@ -148,9 +149,7 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 
 // UpdateTheme PUT /api/v1/users/me/theme
 func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
-	var claims apictx.Claims
-	var ok bool
-	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -159,14 +158,12 @@ func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Theme string `json:"theme"`
 	}
-	var err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil || req.Theme == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Theme == "" {
 		writeError(w, http.StatusBadRequest, "theme is required")
 		return
 	}
 
-	err = h.service.UpdateTheme(r.Context(), claims.UserID, req.Theme)
-	if err != nil {
+	if err := h.service.UpdateTheme(r.Context(), claims.UserID, req.Theme); err != nil {
 		if err.Error() == fmt.Sprintf("invalid theme: %s", req.Theme) {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
 			return
@@ -181,7 +178,10 @@ func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	err := json.NewEncoder(w).Encode(data)
+	if err != nil {
+		return
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {

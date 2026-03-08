@@ -8,6 +8,8 @@ export interface User {
     theme: string
     created_at: string
     updated_at: string
+    bio?: string
+    avatar_url?: string
 }
 
 export interface Author {
