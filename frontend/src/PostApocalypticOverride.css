@@ -1,0 +1,74 @@
+/*
+ * PostApocalypticOverride.css
+ * Drop in frontend/src/ and add to main.tsx:
+ *   import './PostApocalypticOverride.css'
+ *
+ * Requires ThemeContext.tsx to set:
+ *   root.setAttribute('data-theme', id)   // inside applyTheme(), before closing }
+ */
+
+[data-theme="post-apocalyptic"] {
+
+    /* ── Override CSS variables so every component auto-adapts ─────────── */
+    --color-surface:     rgba(12, 9, 6, 0.52) !important;
+    --color-surface-alt: rgba(18, 13, 8, 0.62) !important;
+    --color-border:      rgba(60, 45, 30, 0.45) !important;
+    --glass-bg:          rgba(10, 7, 4, 0.75)  !important;
+
+    /* ── Sidebar ─────────────────────────────────────────────────────────── */
+    aside {
+        background: rgba(8, 5, 2, 0.86) !important;
+        backdrop-filter: blur(6px) !important;
+        border-right: 1px solid rgba(60, 45, 30, 0.40) !important;
+        border-image: none !important;
+        border-top: none !important;
+        box-shadow: 2px 0 20px rgba(0,0,0,0.7) !important;
+    }
+
+    /* ── Cards: glassy, letting the abandoned library show through ──────── */
+    div[style*="var(--color-surface)"],
+    div[style*="background: var(--color-surface)"],
+    div[style*="background:var(--color-surface)"] {
+        backdrop-filter: blur(8px) !important;
+        -webkit-backdrop-filter: blur(8px) !important;
+        border-top: 2px solid transparent;
+        border-image: url("data:image/webp;base64,UklGRkYEAABXRUJQVlA4IDoEAAAwIgCdASqwBBwAPp1OpEwlpCOlJhJImLATiWluDj/+UeM0CwdkBIuhKdXsqX61q6sRMYCrpl4ODu16E7WdCwvxQHzUZ60JEn+Yb9MTaEbFbMnJqw8vcuymj4p/376PgUQJjiD4OSlgz+uHhKZUzwVtCGuwxPW+DWlNOSnOF3DTUTAcFF+5c0Wa7MSmbWx8e2q+Nj/Am8cwB88s6fFUpjwNvR0E3TlA7zKPe5gAgrU/ZST8/pFPNayzbAml5C8HB7RvYR+qufoEBceY6jRjCqEeEBrjh9qpF1Kh7gs3o/Rgw9s+NsbGWTic6ChYo0h+5uFm7vK4RcBoKpi/evY4wcjQEpjz8810XRNQVlg3vHrIybFd3KrO1DRyfBAA/viyN5nVstvl/7iA6R2XAxnPQz1FY4qU/R+9C0f+prihEsnX7wF1/v+urDhsfh2L3yH6cFuGvNswFB+NdZ5WCTp/zVY9a1M+0aXihzZggRkcQ8a2LanKX5TjMwbrnWVb3p+Jg0Q0VeHrcQzlpbTIaXPtYHomOIWueSQn5wG2r4xUYyu8h4ytujFg9hED11UOaJhgijTwKz7ije0eLYFxt+FTt9qh8SjJCbcgGsnLUrCQaUcrwsxWSmeTBoBPwo7H1mjcDeDubUi8f8x2sJLRcZnFy7KiVwxgioO8fC5Q/7b28eRLWEGuhmXBYkmPJzRB/tGmvtNJr6l48iLfmSYU8oNFpcvVYPmFwdz1ncF4sd8PXDowgEXhTea8C59pWjF3oILNSDjLVa3HgC0JUncYuXqhMpQS9pg29lflJWnpjI41BCV3+fXRdWII0d1HRxhDoORo/Hrp6CrI4ThBzhyq+TDB5ityRRvbMVDyIjSgYFK9XqcHPOLdTOihLppdKMUw7LnXYKFxyMZ7vGPvG3qafp5s8kgaDeSTMKJd0ctWqERT1fFSSEwmqZo6wk6sck6g1RrxZ7W3U159rZcOyZCZWttavLKZNCaJMG6RTfrGCNdYIM3g+0wfqiXHmR20wWG/q4rulWfTK//u2n49LrRsR4gmcmH8EWlPQU9Qy+tkV9a2F33ZE19GdYb//zgwBeDA6LCewQ5y5Eaq5Ujj0MCq7gqYzGoLhmfHJYaqDux1MO4O6A5eyeuEGKnYpuk6yg6kTEhezNIjJIF45uptmqfSCnO8zN/N1aUgS6rDRLE10AH8dBdb0TBkPVuzPP7yY6queca7wk+EHIpZ5t1nCvGrDL0MgcOvzExwjFpV1siCRFi4hW+TigxKT5fl0sfI+Ai6x/ubcU2MnPuUOW0J08HfXODmzTSHPU6oBVVoYWAjIDi6Fz303gyD2LtnSX1ZKrVF/sXwSotQv1ulqgmlEz4/zbJEcmcfggduNm0gd9jK/eYhERrG9KAVKD8l9AvQcx9l7yJUjr+Wfi7kY1KbK5GBHJPwuFM0OE9sDSHtKAAAAA==") 2 fill stretch;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.65), inset 0 1px 0 rgba(196,168,122,0.06) !important;
+    }
+
+    /* ── Sidebar children: no border-image ──────────────────────────────── */
+    aside div,
+    aside a,
+    aside button,
+    aside nav {
+        border-image: none !important;
+        border-top: none !important;
+    }
+
+    /* ── Typography ──────────────────────────────────────────────────────── */
+    h1, h2 {
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+
+    /* ── Active nav glow ─────────────────────────────────────────────────── */
+    a[style*="color: var(--color-primary)"] {
+        text-shadow: 0 0 14px rgba(196, 168, 122, 0.45);
+    }
+
+    /* ── Inputs ──────────────────────────────────────────────────────────── */
+    input, textarea, select {
+        caret-color: #c4a87a;
+        background: rgba(12, 9, 6, 0.70) !important;
+    }
+    input:focus, textarea:focus, select:focus {
+        border-color: #c4a87a !important;
+        box-shadow: 0 0 0 2px rgba(196, 168, 122, 0.15) !important;
+    }
+
+    /* ── Scrollbar ───────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0c0906; }
+    ::-webkit-scrollbar-thumb { background: #2e2720; border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: #c4a87a; }
+}

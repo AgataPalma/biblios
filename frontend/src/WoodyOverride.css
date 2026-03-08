@@ -1,0 +1,78 @@
+/*
+ * WoodyOverride.css
+ * Drop in frontend/src/ and add to main.tsx:
+ *   import './WoodyOverride.css'
+ *
+ * Requires ThemeContext.tsx to set:
+ *   root.setAttribute('data-theme', id)   // inside applyTheme(), before closing }
+ */
+
+[data-theme="woody"] {
+
+    /* ── Override theme CSS variables so every component auto-adapts ────── */
+    /* Cards, inputs, modals — everything that reads these becomes glassy   */
+    --color-surface:     rgba(14, 9, 4, 0.55) !important;
+    --color-surface-alt: rgba(20, 12, 5, 0.65) !important;
+    --color-border:      rgba(90, 55, 28, 0.50) !important;
+    --glass-bg:          rgba(12, 8, 3, 0.72)  !important;
+
+    /* ── Sidebar: solid enough to be readable, not so dark it's a wall ─── */
+    aside {
+        background: rgba(10, 6, 2, 0.82) !important;
+        backdrop-filter: blur(8px) !important;
+        border-right: 1px solid rgba(90, 55, 28, 0.45) !important;
+        /* Remove any book-spine border-image that may bleed onto the sidebar */
+        border-image: none !important;
+        border-top: none !important;
+        box-shadow: 2px 0 18px rgba(0,0,0,0.6) !important;
+    }
+
+    /* ── Cards: glass panels that let the bookshelf breathe through ──────  */
+    /* Target the Card component and any div using --color-surface           */
+    div[style*="var(--color-surface)"],
+    div[style*="background: var(--color-surface)"],
+    div[style*="background:var(--color-surface)"] {
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        /* Shelf plank photo as a 2px top accent — only on cards, NOT sidebar */
+        border-top: 2px solid transparent;
+        border-image: url("data:image/webp;base64,UklGRrADAABXRUJQVlA4IKQDAACQHQCdASogAxAAPplCl0glpCIhMBo8KLATCWVlkdAAZbHUBz5O2/ngGn/Xd/6F8zPTPsRHWsfHzrgANbk81Lf9P7aVzb17YKhhUsE7Aflc4m6POLyzKGFeKRG31ORBZmsHsqxdRWVMTyr4uTKX11UDZHLwZz89QiY9QwGu5e4baqeNskMbH6XOMGnkLsMZ/+R1w2cnlCX1jfPLF3UV3ewlh3EyNOM2wo0OzSm6kWjIE2t5/plakn64COpUsWER97uA0hfXj/VwRi4IhtRF1K4IUB3b9nar6Zbz5WXUqZJebZq4Rikhj9BcBteYj5NJsQ6KYZMKgAD+5J3/PqkQvOICtRbiqjdwLAEuW74zV1mjSwPooxfbwqsYyvMNyYOX184BvU1PGBQFjk5G+DWvkru4jFYGeNAkHqlySoa/uTWDRJDjIe4by05H1BjNCJCFGPmxNOhUYeSFLfMgrJJ598qkDoNIIht5wBFMR0mHEAPHt4LzaVPMPwHXHkgWyzovwpHg/na501C570LgTw8aNsgKHkwn93ceBiy/yzJWNtXvBUkIVCDHhemL9MR3qUqa3+U4fMKP9PRSCUV4VrHmO28qUKx9vrEhWQ2jkTPb4fvWS+JbYmT77YCRm+k4R2eA4Qswc5tv1du4WXfP+s3zgqZgDZUdy30agsh9veo8wh+zAbCfVm5sDbMSKu3wwkfLjl/oE4MLC1JjH//jshiaboRLN49nbgOGjqUbIDIFEZ2zTMkVyCJGFl7E1F5vxsEPSgUbZMaiSfVMQAJu1eOjtOdFwYTNpTtdi51BbFJlRgOM5u3nM1VVHeQqkOwyFaGx6kn8sRNKEEaCBiCxvpx5ZrUGthZNCXsv3of5HhFUgbwhzEtUbLxoZsqTvtmdzBu6GQBHfF6AfG0ajMtRmDXFZFRQHZFXD1qJz4/clmDIaEs93JGEVSroOnCreKFcErptfjNe0HQaLyRxvln1IwaN0fNE87V0ZxlDVHDsma8IUB6ANegufUdPMQ2NB/sVvJApAR4/rBnRY0Rkgj0+xPU2jEJL8CWpGgl67fAKB0FrOtzK5BT4GS3dQ3Xbo0Hq1R9KrO7k5v36d0Ged+/0CMlYQYFU9UvkqRv/kyLTOCBpTC/JFll8Q6C3wK/1T6aolKI7AP4KphBa9d26fNC0AGbjn2dMJrpD5bAEj9hUOe21iyezDvypf6Bn8/1HHOQJei/i/LrWQsB64YxYAjhy12/2wdlee2wAAA==") 2 fill stretch;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.55), inset 0 1px 0 rgba(196,128,58,0.08) !important;
+    }
+
+    /* ── Sidebar children must NOT get the border-image ─────────────────── */
+    aside div,
+    aside a,
+    aside button,
+    aside nav {
+        border-image: none !important;
+        border-top: none !important;
+    }
+
+    /* ── Typography ──────────────────────────────────────────────────────── */
+    h1, h2, h3 {
+        font-weight: 700;
+        letter-spacing: 0.01em;
+    }
+
+    /* ── Active nav: warm amber glow ────────────────────────────────────── */
+    a[style*="color: var(--color-primary)"] {
+        text-shadow: 0 0 16px rgba(196, 128, 58, 0.5);
+    }
+
+    /* ── Inputs ──────────────────────────────────────────────────────────── */
+    input, textarea, select {
+        caret-color: #c4803a;
+        background: rgba(14, 9, 4, 0.70) !important;
+    }
+    input:focus, textarea:focus, select:focus {
+        border-color: #c4803a !important;
+        box-shadow: 0 0 0 2px rgba(196, 128, 58, 0.18) !important;
+    }
+
+    /* ── Scrollbar ───────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0e0906; }
+    ::-webkit-scrollbar-thumb { background: #4a2f1a; border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: #c4803a; }
+}

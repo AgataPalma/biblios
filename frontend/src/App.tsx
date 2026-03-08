@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { Spinner } from './components'
-import Navbar from './components/Navbar'
+import Sidebar from './components/Sidebar'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
@@ -11,8 +11,6 @@ import LibraryPage from './pages/LibraryPage'
 import ModerationPage from './pages/ModerationPage'
 import AddBookPage from './pages/AddBookPage'
 import ProfilePage from './pages/ProfilePage'
-
-
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const { isAuthenticated, isLoading } = useAuth()
@@ -35,49 +33,46 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     }
 
     return (
-        <>
-            <Navbar />
-            <main style={{ paddingTop: '56px' }}>
+        <div style={{ display: 'flex', minHeight: '100vh' }}>
+            <Sidebar />
+            {/* paddingLeft matches --sidebar-w which Sidebar sets on <html> */}
+            <main style={{
+                flex: 1,
+                minWidth: 0,
+                paddingLeft: 'var(--sidebar-w, 220px)',
+                transition: 'padding-left 0.22s ease',
+            }}>
                 {children}
             </main>
-        </>
+        </div>
     )
 }
 
 export default function App() {
     return (
         <Routes>
-            <Route path="/login" element={<LoginPage />} />
+            <Route path="/login"    element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/" element={
-                <ProtectedRoute>
-                    <DashboardPage />
-                </ProtectedRoute>
+                <ProtectedRoute><DashboardPage /></ProtectedRoute>
             } />
-            <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+            <Route path="/profile" element={
+                <ProtectedRoute><ProfilePage /></ProtectedRoute>
+            } />
             <Route path="/books" element={
-                <ProtectedRoute>
-                    <BooksPage />
-                </ProtectedRoute>
+                <ProtectedRoute><BooksPage /></ProtectedRoute>
             } />
             <Route path="/books/add" element={
-                <ProtectedRoute>
-                    <AddBookPage /></ProtectedRoute>
+                <ProtectedRoute><AddBookPage /></ProtectedRoute>
             } />
             <Route path="/books/:id" element={
-                <ProtectedRoute>
-                    <BookDetailPage />
-                </ProtectedRoute>
+                <ProtectedRoute><BookDetailPage /></ProtectedRoute>
             } />
             <Route path="/library" element={
-                <ProtectedRoute>
-                    <LibraryPage />
-                </ProtectedRoute>
+                <ProtectedRoute><LibraryPage /></ProtectedRoute>
             } />
             <Route path="/moderation" element={
-                <ProtectedRoute>
-                    <ModerationPage />
-                </ProtectedRoute>
+                <ProtectedRoute><ModerationPage /></ProtectedRoute>
             } />
         </Routes>
     )

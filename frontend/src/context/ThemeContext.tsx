@@ -52,6 +52,7 @@ function applyTheme(id: ThemeId): void {
         link.href = `https://fonts.googleapis.com/css2?family=${fonts}&display=swap`
         document.head.appendChild(link)
     }
+    root.setAttribute('data-theme', id)
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

@@ -256,6 +256,32 @@ const bookcaseThemes: Record<ThemeId, BookcaseTheme> = {
         darkness: 0.9,
         grainOpacity: 0.06,
     },
+
+    'candlelight': {
+        shelfColor: '#2e2620',
+        shelfHighlight: '#3d3328',
+        shelfShadow: '#141008',
+        shelfEdge: '#0d0a06',
+        frameColor: '#231e18',
+        frameHighlight: '#302820',
+        frameShadow: '#0a0806',
+        wallColor: '#100e0a',
+        ambientColor: '#c9a96e',
+        ambientOpacity: 0.12,
+        bookPalettes: [
+            ['#7c6f5e', '#5c5040', '#9c8e7a'],
+            ['#5a7a8a', '#3a5a6a', '#7a9aaa'],
+            ['#7a5a6a', '#5a3a4a', '#9a7a8a'],
+            ['#6a7a5a', '#4a5a3a', '#8a9a7a'],
+            ['#8a6a5a', '#6a4a3a', '#aa8a7a'],
+            ['#6a5a8a', '#4a3a6a', '#8a7aaa'],
+            ['#8a7a5a', '#6a5a3a', '#aaa07a'],
+            ['#5a6a7a', '#3a4a5a', '#7a8a9a'],
+        ],
+        spineStyle: 'parchment',
+        darkness: 0.78,
+        grainOpacity: 0.14,
+    },
 }
 
 // ─── SVG generation helpers ──────────────────────────────────────────────────
@@ -837,30 +863,176 @@ export default function ThemeBackground() {
     const { themeId } = useTheme()
 
     const svgContent = useMemo(() => {
+        if (themeId === 'post-apocalyptic' || themeId === 'woody' ) return ''   // skip SVG generation
         const w = window.innerWidth || 1920
         const h = window.innerHeight || 1080
         return generateBookcaseSVG(themeId, w, h)
     }, [themeId])
 
     const svgUrl = useMemo(() => {
+        if (themeId === 'post-apocalyptic' || themeId === 'woody') return ''
         const blob = new Blob([svgContent], { type: 'image/svg+xml' })
         return URL.createObjectURL(blob)
     }, [svgContent])
 
+    if (themeId === 'post-apocalyptic') {
+        return (
+            <div style={{
+                position: 'fixed', top: 0, left: 0,
+                width: '100vw', height: '100vh',
+                zIndex: -10, pointerEvents: 'none',
+            }}>
+                {/* ── 1. Photo base ─────────────────────────────────── */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    backgroundImage: 'url("/apocalyptic_library.png")',
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center top',
+                }} />
+
+                {/* ── 2. Deep vignette — kills the bright edges ──────── */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    background: [
+                        'radial-gradient(ellipse 80% 70% at 58% 42%, rgba(12,9,6,0.15) 0%, rgba(12,9,6,0.65) 60%, rgba(12,9,6,0.92) 100%)',
+                    ].join(', '),
+                }} />
+
+                {/* ── 3. Top + bottom crush — keeps UI legible ──────── */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'linear-gradient(to bottom, rgba(12,9,6,0.85) 0%, transparent 18%, transparent 78%, rgba(12,9,6,0.90) 100%)',
+                }} />
+
+                {/* ── 4. Left edge darkening for sidebar contrast ────── */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'linear-gradient(to right, rgba(12,9,6,0.80) 0%, rgba(12,9,6,0.30) 220px, transparent 400px)',
+                }} />
+
+                {/* ── 5. Animated dust motes (pure CSS, no JS) ─────── */}
+                <svg
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.55 }}
+                    xmlns="http://www.w3.org/2000/svg"
+                >
+                    <defs>
+                        <radialGradient id="mote" cx="50%" cy="50%" r="50%">
+                            <stop offset="0%" stopColor="#ece3d4" stopOpacity="1" />
+                            <stop offset="100%" stopColor="#ece3d4" stopOpacity="0" />
+                        </radialGradient>
+                        <style>{`
+                            @keyframes drift1 { 0%{transform:translate(0,0) scale(1)} 50%{transform:translate(18px,-28px) scale(1.3)} 100%{transform:translate(0,0) scale(1)} }
+                            @keyframes drift2 { 0%{transform:translate(0,0) scale(0.8)} 50%{transform:translate(-14px,20px) scale(1.1)} 100%{transform:translate(0,0) scale(0.8)} }
+                            @keyframes drift3 { 0%{transform:translate(0,0)} 33%{transform:translate(10px,-16px)} 66%{transform:translate(-8px,10px)} 100%{transform:translate(0,0)} }
+                            @keyframes flicker { 0%,100%{opacity:0.6} 50%{opacity:1} }
+                            .m1{animation:drift1 9s ease-in-out infinite}
+                            .m2{animation:drift2 13s ease-in-out infinite}
+                            .m3{animation:drift3 7s ease-in-out infinite}
+                            .m4{animation:drift1 11s ease-in-out infinite reverse}
+                            .m5{animation:drift2 8s ease-in-out infinite reverse}
+                            .mf{animation:flicker 3s ease-in-out infinite}
+                        `}</style>
+                    </defs>
+                    {/* Motes positioned near the light beam area (55–65% x) */}
+                    <circle className="m1" cx="58%" cy="38%" r="2.5" fill="url(#mote)" />
+                    <circle className="m2" cx="61%" cy="44%" r="1.8" fill="url(#mote)" />
+                    <circle className="m3" cx="56%" cy="52%" r="3"   fill="url(#mote)" />
+                    <circle className="m4" cx="63%" cy="35%" r="1.5" fill="url(#mote)" />
+                    <circle className="m5" cx="59%" cy="60%" r="2"   fill="url(#mote)" />
+                    <circle className="m1 mf" cx="57%" cy="48%" r="1.2" fill="url(#mote)" />
+                    <circle className="m3" cx="64%" cy="55%" r="2.2" fill="url(#mote)" />
+                    <circle className="m2" cx="55%" cy="40%" r="1.6" fill="url(#mote)" />
+                    {/* A few more scattered */}
+                    <circle className="m4" cx="42%" cy="30%" r="1.2" fill="url(#mote)" />
+                    <circle className="m5" cx="72%" cy="42%" r="1.4" fill="url(#mote)" />
+                    <circle className="m1" cx="38%" cy="55%" r="1"   fill="url(#mote)" />
+                    <circle className="m2" cx="78%" cy="58%" r="1.3" fill="url(#mote)" />
+                </svg>
+
+                {/* ── 6. Film grain overlay ─────────────────────────── */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.08'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'repeat',
+                    backgroundSize: '200px',
+                    mixBlendMode: 'overlay',
+                    opacity: 0.6,
+                }} />
+            </div>
+        )
+    }
+
+    if (themeId === 'woody') {
+        return (
+            <div style={{
+                position: 'fixed', top: 0, left: 0,
+                width: '100vw', height: '100vh',
+                zIndex: -10, pointerEvents: 'none',
+            }}>
+                {/* ── 1. Photo base ─────────────────────────────────────── */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    backgroundImage: 'url("/woody_library.png")',
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center top',
+                }} />
+
+                {/* ── 2. Radial vignette — darkens edges, preserves centre glow */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'radial-gradient(ellipse 75% 65% at 50% 30%, rgba(14,9,6,0.10) 0%, rgba(14,9,6,0.55) 55%, rgba(14,9,6,0.92) 100%)',
+                }} />
+
+                {/* ── 3. Top crush — ceiling glow bleeds slightly through */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'linear-gradient(to bottom, rgba(14,9,6,0.50) 0%, transparent 20%, transparent 75%, rgba(14,9,6,0.92) 100%)',
+                }} />
+
+                {/* ── 4. Left edge for sidebar contrast ───────────────── */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'linear-gradient(to right, rgba(14,9,6,0.82) 0%, rgba(14,9,6,0.35) 220px, transparent 420px)',
+                }} />
+
+                {/* ── 5. Fireplace flicker: warm amber pulse on the glow ─ */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'radial-gradient(ellipse 40% 30% at 50% 0%, rgba(196,128,58,0.12) 0%, transparent 100%)',
+                    animation: 'woodyFlicker 4s ease-in-out infinite',
+                }} />
+
+                {/* ── 6. Fine film grain ───────────────────────────────── */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.07'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'repeat',
+                    backgroundSize: '180px',
+                    mixBlendMode: 'overlay',
+                    opacity: 0.5,
+                }} />
+
+                {/* ── 7. Keyframe style tag ────────────────────────────── */}
+                <style>{`
+                    @keyframes woodyFlicker {
+                        0%,100% { opacity: 0.7; }
+                        25%     { opacity: 1.0; }
+                        50%     { opacity: 0.8; }
+                        75%     { opacity: 0.95; }
+                    }
+                `}</style>
+            </div>
+        )
+    }
+
     return (
-        <div
-            style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                width: '100vw',
-                height: '100vh',
-                zIndex: -10,
-                pointerEvents: 'none',
-                backgroundImage: `url("${svgUrl}")`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-            }}
-        />
+        <div style={{
+            position: 'fixed', top: 0, left: 0,
+            width: '100vw', height: '100vh',
+            zIndex: -10, pointerEvents: 'none',
+            backgroundImage: `url("${svgUrl}")`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+        }} />
     )
 }

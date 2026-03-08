@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import ThemeBackground from './components/ThemeBackground'
+import './PostApocalypticOverride.css'
+import './WoodyOverride.css'
 import App from './App'
 import './index.css'
 
