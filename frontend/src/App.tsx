@@ -10,6 +10,8 @@ import BookDetailPage from './pages/BookDetailPage'
 import LibraryPage from './pages/LibraryPage'
 import ModerationPage from './pages/ModerationPage'
 import AddBookPage from './pages/AddBookPage'
+import ProfilePage from './pages/ProfilePage'
+
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -52,6 +54,7 @@ export default function App() {
                     <DashboardPage />
                 </ProtectedRoute>
             } />
+            <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/books" element={
                 <ProtectedRoute>
                     <BooksPage />
