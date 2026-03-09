@@ -91,6 +91,7 @@ type Submission struct {
 	ID              string     `json:"id"`
 	SubmittedBy     string     `json:"submitted_by"`
 	Status          string     `json:"status"`
+	CatalogueOnly   bool       `json:"catalogue_only"`
 	RejectionReason *string    `json:"rejection_reason,omitempty"`
 	ReviewedBy      *string    `json:"reviewed_by,omitempty"`
 	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`

@@ -322,7 +322,7 @@ export default function AddBookPage() {
     const [existingEdition, setExistingEdition] = useState<ExistingEdition | null>(null)
 
     // Book-specific
-    const [format, setFormat]       = useState<'hardcover' | 'paperback' | 'ebook'>('paperback')
+    const [format, setFormat]       = useState<'hardcover' | 'paperback' | 'ebook' | 'audiobook'>('paperback')
     const [condition, setCondition] = useState('good')
 
     // Audiobook-specific
@@ -336,6 +336,7 @@ export default function AddBookPage() {
 
     const [manualTitle,       setManualTitle]       = useState('')
     const [manualAuthors,     setManualAuthors]     = useState<string[]>([])
+    const [manualGenres,      setManualGenres]      = useState<string[]>([])
     const [manualTranslators, setManualTranslators] = useState<string[]>([])
     const [manualIsbn,        setManualIsbn]        = useState('')
     const [manualAsin,        setManualAsin]        = useState('')
@@ -432,7 +433,7 @@ export default function AddBookPage() {
                 authors:     lookupResult.authors ?? [],
                 description: lookupResult.description,
                 cover_url:   lookupResult.cover_url,
-                genres:      [],
+                genres:      lookupResult.categories ?? [],
                 catalogue_only: catalogueOnly,
                 edition: {
                     format:           dbFormat,
@@ -463,7 +464,7 @@ export default function AddBookPage() {
                 authors:     manualAuthors,
                 description: manualDesc || undefined,
                 cover_url:   manualCoverUrl || undefined,
-                genres:      [],
+                genres:      manualGenres,
                 catalogue_only: catalogueOnly,
                 edition: {
                     format:           mode === 'audiobook' ? 'audiobook' : format,
@@ -520,7 +521,7 @@ export default function AddBookPage() {
         setFormat('paperback'); setCondition('good')
         setNarrator(''); setDuration('')
         setLanguage('en'); setDetailsError(''); setDoneMessage('')
-        setManualTitle(''); setManualAuthors([]); setManualTranslators([]); setManualIsbn('')
+        setManualTitle(''); setManualAuthors([]); setManualGenres([]); setManualTranslators([]); setManualIsbn('')
         setManualAsin(''); setManualPublisher(''); setManualEditionLabel(''); setManualPublishedAt('')
         setManualPages(''); setManualFileFormat(''); setManualAudioFormat('')
         setManualDesc(''); setManualCoverUrl(''); setManualError('')
@@ -1088,6 +1089,10 @@ export default function AddBookPage() {
                             <FieldLabel label="Author(s)" hint="Required — press Enter or comma to add each name" />
                             <TagInput values={manualAuthors} onChange={setManualAuthors} placeholder="e.g. Patrick Rothfuss" />
                         </div>
+                        <div>
+                            <FieldLabel label="Genre(s)" hint="Optional — press Enter or comma to add each genre" />
+                            <TagInput values={manualGenres} onChange={setManualGenres} placeholder="e.g. Fantasy" />
+                        </div>
                         {!isAudiobook && (
                             <div>
                                 <FieldLabel label="Translator(s)" hint="Optional — press Enter or comma to add each name" />
@@ -1219,7 +1224,7 @@ export default function AddBookPage() {
 
                         <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)' }} />
 
-                        {!isAudiobook && !catalogueOnly && (
+                        {!isAudiobook && (
                             <div>
                                 <FieldLabel label="Format" />
                                 <ToggleGroup
@@ -1323,7 +1328,7 @@ export default function AddBookPage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
                             {/* ── BOOK fields ── */}
-                            {!isAudiobook && !catalogueOnly && (
+                            {!isAudiobook && (
                                 <>
                                     <div>
                                         <FieldLabel label="Format" />
@@ -1338,7 +1343,7 @@ export default function AddBookPage() {
                                         />
                                     </div>
 
-                                    {format !== 'ebook' && (
+                                    {!catalogueOnly && format !== 'ebook' && (
                                         <div>
                                             <FieldLabel label="Condition" />
                                             <ToggleGroup

@@ -119,7 +119,7 @@ func (r *Repository) ListPendingSubmissions(ctx context.Context, page int, limit
 	}
 
 	var query string = `
-        SELECT id, submitted_by, status, rejection_reason, reviewed_by,
+        SELECT id, submitted_by, status, catalogue_only, rejection_reason, reviewed_by,
                reviewed_at, book_id, edition_id, copy_id, deleted_at, created_at, updated_at
         FROM submissions
         WHERE status = 'pending' AND deleted_at IS NULL
@@ -138,7 +138,7 @@ func (r *Repository) ListPendingSubmissions(ctx context.Context, page int, limit
 	for rows.Next() {
 		var s Submission
 		err = rows.Scan(
-			&s.ID, &s.SubmittedBy, &s.Status, &s.RejectionReason,
+			&s.ID, &s.SubmittedBy, &s.Status, &s.CatalogueOnly, &s.RejectionReason,
 			&s.ReviewedBy, &s.ReviewedAt, &s.BookID, &s.EditionID,
 			&s.CopyID, &s.DeletedAt, &s.CreatedAt, &s.UpdatedAt,
 		)
@@ -154,14 +154,14 @@ func (r *Repository) ListPendingSubmissions(ctx context.Context, page int, limit
 func (r *Repository) FindSubmissionByID(ctx context.Context, id string) (*Submission, error) {
 	var s Submission
 	var query string = `
-        SELECT id, submitted_by, status, rejection_reason, reviewed_by,
+        SELECT id, submitted_by, status, catalogue_only, rejection_reason, reviewed_by,
                reviewed_at, book_id, edition_id, copy_id, deleted_at, created_at, updated_at
         FROM submissions
         WHERE id = $1 AND deleted_at IS NULL
     `
 
 	var err error = r.db.QueryRow(ctx, query, id).Scan(
-		&s.ID, &s.SubmittedBy, &s.Status, &s.RejectionReason,
+		&s.ID, &s.SubmittedBy, &s.Status, &s.CatalogueOnly, &s.RejectionReason,
 		&s.ReviewedBy, &s.ReviewedAt, &s.BookID, &s.EditionID,
 		&s.CopyID, &s.DeletedAt, &s.CreatedAt, &s.UpdatedAt,
 	)
@@ -247,16 +247,103 @@ func (r *Repository) ApproveBookEntities(ctx context.Context, bookID string, edi
 	return nil
 }
 
+func (r *Repository) ReplaceBookAuthors(ctx context.Context, bookID string, authorNames []string, autoApprove bool) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM book_authors WHERE book_id = $1`, bookID)
+	if err != nil {
+		return fmt.Errorf("failed to clear book authors: %w", err)
+	}
+	for _, name := range authorNames {
+		if name == "" {
+			continue
+		}
+		var author Author
+		var row pgx.Row = r.db.QueryRow(ctx, `SELECT id, name, status FROM authors WHERE name = $1`, name)
+		err = row.Scan(&author.ID, &author.Name, &author.Status)
+		if err != nil {
+			// Not found — create
+			err = r.db.QueryRow(ctx,
+				`INSERT INTO authors (name, status) VALUES ($1, $2) RETURNING id, name, status`,
+				name, map[bool]string{true: "approved", false: "pending"}[autoApprove],
+			).Scan(&author.ID, &author.Name, &author.Status)
+			if err != nil {
+				return fmt.Errorf("failed to create author: %w", err)
+			}
+		}
+		_, err = r.db.Exec(ctx, `INSERT INTO book_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, bookID, author.ID)
+		if err != nil {
+			return fmt.Errorf("failed to link author: %w", err)
+		}
+	}
+	return nil
+}
+
+func (r *Repository) ReplaceBookGenres(ctx context.Context, bookID string, genreNames []string, autoApprove bool) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM book_genres WHERE book_id = $1`, bookID)
+	if err != nil {
+		return fmt.Errorf("failed to clear book genres: %w", err)
+	}
+	for _, name := range genreNames {
+		if name == "" {
+			continue
+		}
+		var genre Genre
+		var row pgx.Row = r.db.QueryRow(ctx, `SELECT id, name, status FROM genres WHERE name = $1`, name)
+		err = row.Scan(&genre.ID, &genre.Name, &genre.Status)
+		if err != nil {
+			err = r.db.QueryRow(ctx,
+				`INSERT INTO genres (name, status) VALUES ($1, $2) RETURNING id, name, status`,
+				name, map[bool]string{true: "approved", false: "pending"}[autoApprove],
+			).Scan(&genre.ID, &genre.Name, &genre.Status)
+			if err != nil {
+				return fmt.Errorf("failed to create genre: %w", err)
+			}
+		}
+		_, err = r.db.Exec(ctx, `INSERT INTO book_genres (book_id, genre_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, bookID, genre.ID)
+		if err != nil {
+			return fmt.Errorf("failed to link genre: %w", err)
+		}
+	}
+	return nil
+}
+
+func (r *Repository) ReplaceEditionTranslators(ctx context.Context, editionID string, names []string) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM book_edition_translators WHERE edition_id = $1`, editionID)
+	if err != nil {
+		return fmt.Errorf("failed to clear edition translators: %w", err)
+	}
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		var id string
+		err = r.db.QueryRow(ctx, `SELECT id FROM translators WHERE name = $1`, name).Scan(&id)
+		if err != nil {
+			err = r.db.QueryRow(ctx, `INSERT INTO translators (name, status) VALUES ($1, 'approved') RETURNING id`, name).Scan(&id)
+			if err != nil {
+				return fmt.Errorf("failed to create translator: %w", err)
+			}
+		}
+		_, err = r.db.Exec(ctx, `INSERT INTO book_edition_translators (edition_id, translator_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, editionID, id)
+		if err != nil {
+			return fmt.Errorf("failed to link translator: %w", err)
+		}
+	}
+	return nil
+}
+
 func (r *Repository) UpdateEditionDetails(ctx context.Context, editionID string, e Edition) error {
 	var query string = `
         UPDATE book_editions SET
-            format = $2, isbn = $3, language = $4, publisher = $5,
-            edition = $6, page_count = $7, updated_at = NOW()
+            format = $2, isbn = $3, asin = $4, language = $5, publisher = $6,
+            edition = $7, published_at = $8, page_count = $9,
+            file_format = $10, duration_minutes = $11, audio_format = $12,
+            updated_at = NOW()
         WHERE id = $1
     `
 	var _, err = r.db.Exec(ctx, query,
-		editionID, e.Format, e.ISBN, e.Language,
-		e.Publisher, e.Edition, e.PageCount,
+		editionID, e.Format, e.ISBN, e.ASIN, e.Language,
+		e.Publisher, e.Edition, e.PublishedAt, e.PageCount,
+		e.FileFormat, e.DurationMinutes, e.AudioFormat,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update edition: %w", err)
@@ -564,15 +651,16 @@ func (r *txRepository) LinkEditionTranslator(ctx context.Context, editionID stri
 func (r *txRepository) InsertSubmission(ctx context.Context, userID string, bookID string, editionID string) (Submission, error) {
 	var submission Submission
 	var query string = `
-        INSERT INTO submissions (submitted_by, book_id, edition_id, status)
-        VALUES ($1, $2, $3, 'pending')
-        RETURNING id, submitted_by, status, book_id, edition_id, copy_id, deleted_at, created_at, updated_at
+        INSERT INTO submissions (submitted_by, book_id, edition_id, status, catalogue_only)
+        VALUES ($1, $2, $3, 'pending', FALSE)
+        RETURNING id, submitted_by, status, catalogue_only, book_id, edition_id, copy_id, deleted_at, created_at, updated_at
     `
 
 	var err error = r.db.QueryRow(ctx, query, userID, bookID, editionID).Scan(
 		&submission.ID,
 		&submission.SubmittedBy,
 		&submission.Status,
+		&submission.CatalogueOnly,
 		&submission.BookID,
 		&submission.EditionID,
 		&submission.CopyID,
@@ -590,14 +678,15 @@ func (r *txRepository) InsertSubmission(ctx context.Context, userID string, book
 func (r *txRepository) InsertSubmissionApprovedNoCopy(ctx context.Context, userID string, bookID string, editionID string) (Submission, error) {
 	var submission Submission
 	var query string = `
-        INSERT INTO submissions (submitted_by, book_id, edition_id, status)
-        VALUES ($1, $2, $3, 'approved')
-        RETURNING id, submitted_by, status, book_id, edition_id, copy_id, deleted_at, created_at, updated_at
+        INSERT INTO submissions (submitted_by, book_id, edition_id, status, catalogue_only)
+        VALUES ($1, $2, $3, 'approved', TRUE)
+        RETURNING id, submitted_by, status, catalogue_only, book_id, edition_id, copy_id, deleted_at, created_at, updated_at
     `
 	var err error = r.db.QueryRow(ctx, query, userID, bookID, editionID).Scan(
 		&submission.ID,
 		&submission.SubmittedBy,
 		&submission.Status,
+		&submission.CatalogueOnly,
 		&submission.BookID,
 		&submission.EditionID,
 		&submission.CopyID,
@@ -614,15 +703,16 @@ func (r *txRepository) InsertSubmissionApprovedNoCopy(ctx context.Context, userI
 func (r *txRepository) InsertSubmissionApproved(ctx context.Context, userID string, bookID string, editionID string, copyID string) (Submission, error) {
 	var submission Submission
 	var query string = `
-        INSERT INTO submissions (submitted_by, book_id, edition_id, copy_id, status)
-        VALUES ($1, $2, $3, $4, 'approved')
-        RETURNING id, submitted_by, status, book_id, edition_id, copy_id, deleted_at, created_at, updated_at
+        INSERT INTO submissions (submitted_by, book_id, edition_id, copy_id, status, catalogue_only)
+        VALUES ($1, $2, $3, $4, 'approved', FALSE)
+        RETURNING id, submitted_by, status, catalogue_only, book_id, edition_id, copy_id, deleted_at, created_at, updated_at
     `
 
 	var err error = r.db.QueryRow(ctx, query, userID, bookID, editionID, copyID).Scan(
 		&submission.ID,
 		&submission.SubmittedBy,
 		&submission.Status,
+		&submission.CatalogueOnly,
 		&submission.BookID,
 		&submission.EditionID,
 		&submission.CopyID,

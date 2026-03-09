@@ -42,9 +42,26 @@ type addCopyRequest struct {
 }
 
 type updateBookRequest struct {
-	Title       *string `json:"title"`
-	Description *string `json:"description"`
-	CoverURL    *string `json:"cover_url"`
+	Title       *string  `json:"title"`
+	Description *string  `json:"description"`
+	CoverURL    *string  `json:"cover_url"`
+	Authors     []string `json:"authors"`
+	Genres      []string `json:"genres"`
+	Edition     *struct {
+		ID              string   `json:"id"`
+		Format          string   `json:"format"`
+		Language        string   `json:"language"`
+		ISBN            *string  `json:"isbn"`
+		ASIN            *string  `json:"asin"`
+		Publisher       *string  `json:"publisher"`
+		EditionLabel    *string  `json:"edition"`
+		PublishedAt     *string  `json:"published_at"`
+		PageCount       *int     `json:"page_count"`
+		FileFormat      *string  `json:"file_format"`
+		DurationMinutes *int     `json:"duration_minutes"`
+		AudioFormat     *string  `json:"audio_format"`
+		Translators     []string `json:"translators"`
+	} `json:"edition"`
 }
 
 type updateReadingStatusRequest struct {
@@ -256,12 +273,32 @@ func (h *Handler) UpdateBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.service.UpdateBook(r.Context(), UpdateBookInput{
+	input := UpdateBookInput{
 		ID:          id,
 		Title:       req.Title,
 		Description: req.Description,
 		CoverURL:    req.CoverURL,
-	})
+		Authors:     req.Authors,
+		Genres:      req.Genres,
+	}
+	if req.Edition != nil {
+		input.EditionID = req.Edition.ID
+		input.Edition = &EditionInput{
+			Format:          req.Edition.Format,
+			Language:        req.Edition.Language,
+			ISBN:            req.Edition.ISBN,
+			ASIN:            req.Edition.ASIN,
+			Publisher:       req.Edition.Publisher,
+			Edition:         req.Edition.EditionLabel,
+			PublishedAt:     req.Edition.PublishedAt,
+			PageCount:       req.Edition.PageCount,
+			FileFormat:      req.Edition.FileFormat,
+			DurationMinutes: req.Edition.DurationMinutes,
+			AudioFormat:     req.Edition.AudioFormat,
+			Translators:     req.Edition.Translators,
+		}
+	}
+	err = h.service.UpdateBook(r.Context(), input)
 	if err != nil {
 		if err.Error() == "title is required" {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())

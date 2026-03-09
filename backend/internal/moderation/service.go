@@ -69,12 +69,23 @@ func (s *Service) Approve(ctx context.Context, input ApproveInput) error {
 			return err
 		}
 
-		// Create the book copy now that everything is approved
-		var copy books.Copy
-		copy, err = s.repo.InsertCopyDirect(ctx, *submission.EditionID, submission.SubmittedBy, nil)
-		err = s.repo.ApproveSubmissionWithCopy(ctx, input.SubmissionID, input.ReviewerID, copy.ID)
-		if err != nil {
-			return err
+		if submission.CatalogueOnly {
+			// Catalogue-only: approve without creating a personal copy
+			err = s.repo.ApproveSubmission(ctx, input.SubmissionID, input.ReviewerID)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Regular submission: create the book copy for the submitter
+			var copy books.Copy
+			copy, err = s.repo.InsertCopyDirect(ctx, *submission.EditionID, submission.SubmittedBy, nil)
+			if err != nil {
+				return err
+			}
+			err = s.repo.ApproveSubmissionWithCopy(ctx, input.SubmissionID, input.ReviewerID, copy.ID)
+			if err != nil {
+				return err
+			}
 		}
 	} else {
 		err = s.repo.ApproveSubmission(ctx, input.SubmissionID, input.ReviewerID)
@@ -149,16 +160,22 @@ func (s *Service) EditAndApprove(ctx context.Context, input EditAndApproveInput)
 		return err
 	}
 
-	// Create copy
-	var copy books.Copy
-	copy, err = s.repo.InsertCopyDirect(ctx, *submission.EditionID, submission.SubmittedBy, nil)
-	if err != nil {
-		return err
-	}
-
-	err = s.repo.ApproveSubmissionWithCopy(ctx, input.SubmissionID, input.ReviewerID, copy.ID)
-	if err != nil {
-		return err
+	if submission.CatalogueOnly {
+		err = s.repo.ApproveSubmission(ctx, input.SubmissionID, input.ReviewerID)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Create copy for the submitter
+		var copy books.Copy
+		copy, err = s.repo.InsertCopyDirect(ctx, *submission.EditionID, submission.SubmittedBy, nil)
+		if err != nil {
+			return err
+		}
+		err = s.repo.ApproveSubmissionWithCopy(ctx, input.SubmissionID, input.ReviewerID, copy.ID)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Log with before/after

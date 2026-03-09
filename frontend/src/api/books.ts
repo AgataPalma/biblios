@@ -16,17 +16,20 @@ export interface UpdateBookPayload {
     authors?: string[]
     genres?: string[]
     edition?: {
+        id: string            // required to know which edition to update
         format: string
         isbn?: string
+        asin?: string
         language: string
         publisher?: string
-        edition?: string          // edition name/label
+        edition?: string
+        published_at?: string
         page_count?: number
-        narrator?: string         // audiobook narrator name (backend creates Narrator)
-        translator?: string       // translator name (backend creates Translator)
+        file_format?: string
         duration_minutes?: number
+        audio_format?: string
+        translators?: string[]
     }
-
 }
 
 export interface SubmitBookPayload {

@@ -24,6 +24,9 @@ type bookRepository interface {
 	FindBookByID(ctx context.Context, id string) (*Book, error)
 	FindSubmissionByID(ctx context.Context, id string) (*Submission, error)
 	DeleteBook(ctx context.Context, id string) error
+	ReplaceBookAuthors(ctx context.Context, bookID string, authorNames []string, autoApprove bool) error
+	ReplaceBookGenres(ctx context.Context, bookID string, genreNames []string, autoApprove bool) error
+	ReplaceEditionTranslators(ctx context.Context, editionID string, names []string) error
 	withDB(db DB) *txRepository // needed so SubmitBook can create a txRepository
 	FindEditionByID(ctx context.Context, id string) (*Edition, error)
 }
@@ -98,6 +101,10 @@ type UpdateBookInput struct {
 	Title       *string
 	Description *string
 	CoverURL    *string
+	Authors     []string      // if non-nil, replaces all existing authors
+	Genres      []string      // if non-nil, replaces all existing genres
+	EditionID   string        // optional — if set, edition fields are also updated
+	Edition     *EditionInput // optional — edition fields to update
 }
 
 func (s *Service) AddCopyOfExistingEdition(ctx context.Context, input AddCopyInput) (AddCopyResult, error) {
@@ -335,7 +342,51 @@ func (s *Service) GetBook(ctx context.Context, id string) (*Book, error) {
 }
 
 func (s *Service) UpdateBook(ctx context.Context, input UpdateBookInput) error {
-	return s.repo.UpdateBook(ctx, input.ID, input.Title, input.Description, input.CoverURL)
+	if input.Title != nil && *input.Title == "" {
+		return fmt.Errorf("title is required")
+	}
+	if err := s.repo.UpdateBook(ctx, input.ID, input.Title, input.Description, input.CoverURL); err != nil {
+		return err
+	}
+	if len(input.Authors) > 0 {
+		if err := s.repo.ReplaceBookAuthors(ctx, input.ID, input.Authors, true); err != nil {
+			return err
+		}
+	}
+	if input.Genres != nil {
+		if err := s.repo.ReplaceBookGenres(ctx, input.ID, input.Genres, true); err != nil {
+			return err
+		}
+	}
+	if input.EditionID != "" && input.Edition != nil {
+		edition := Edition{
+			ID:              input.EditionID,
+			Language:        input.Edition.Language,
+			ISBN:            input.Edition.ISBN,
+			ASIN:            input.Edition.ASIN,
+			Publisher:       input.Edition.Publisher,
+			Edition:         input.Edition.Edition,
+			PageCount:       input.Edition.PageCount,
+			FileFormat:      input.Edition.FileFormat,
+			DurationMinutes: input.Edition.DurationMinutes,
+			AudioFormat:     input.Edition.AudioFormat,
+		}
+		if input.Edition.PublishedAt != nil && *input.Edition.PublishedAt != "" {
+			t, err := parsePublishedAt(*input.Edition.PublishedAt)
+			if err == nil {
+				edition.PublishedAt = &t
+			}
+		}
+		if err := s.repo.UpdateEditionDetails(ctx, input.EditionID, edition); err != nil {
+			return err
+		}
+		if input.Edition.Translators != nil {
+			if err := s.repo.ReplaceEditionTranslators(ctx, input.EditionID, input.Edition.Translators); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Service) DeleteBook(ctx context.Context, id string) error {
