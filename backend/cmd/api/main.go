@@ -12,6 +12,7 @@ import (
 	"github.com/AgataPalma/biblios/internal/lookup"
 	"github.com/AgataPalma/biblios/internal/middleware"
 	"github.com/AgataPalma/biblios/internal/moderation"
+	"github.com/AgataPalma/biblios/internal/reviews"
 	"github.com/AgataPalma/biblios/internal/tokenstore"
 	"github.com/AgataPalma/biblios/internal/users"
 	"github.com/go-chi/chi/v5"
@@ -110,7 +111,12 @@ func main() {
 	var lookupHandler *lookup.Handler = lookup.NewHandler(lookupService)
 
 	// Adapter to satisfy books.LookupService interface
-	var bookHandler *books.Handler = books.NewHandler(bookService, &lookupAdapter{svc: lookupService})
+	var bookHandler *books.Handler = books.NewHandler(bookService, &lookupAdapter{svc: lookupService}, cfg.CoversDir)
+
+	// Reviews
+	var reviewRepo *reviews.Repository = reviews.NewRepository(db)
+	var reviewService *reviews.Service = reviews.NewService(reviewRepo)
+	var reviewHandler *reviews.Handler = reviews.NewHandler(reviewService)
 	// Router
 	var r *chi.Mux = chi.NewRouter()
 	//    r := chi.NewRouter()
@@ -160,6 +166,13 @@ func main() {
 			r.Delete("/books/copies/{id}", bookHandler.RemoveCopy)
 			r.Get("/books/{id}", bookHandler.GetBook)
 
+			// Reviews
+			r.Get("/books/{id}/reviews", reviewHandler.GetBookReviews)
+			r.Get("/books/{id}/reviews/me", reviewHandler.GetMyReview)
+			r.Post("/books/{id}/reviews", reviewHandler.UpsertReview)
+			r.Put("/books/{id}/reviews/me", reviewHandler.UpdateMyReview)
+			r.Delete("/books/{id}/reviews/me", reviewHandler.DeleteMyReview)
+
 			// Books - moderators and admins only
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequireRole(apictx.RoleModerator, apictx.RoleAdmin))
@@ -177,11 +190,20 @@ func main() {
 			r.Put("/moderation/submissions/{id}/approve", moderationHandler.Approve)
 			r.Put("/moderation/submissions/{id}/reject", moderationHandler.Reject)
 			r.Put("/moderation/submissions/{id}/edit", moderationHandler.EditAndApprove)
+			// Cover image upload
+			r.Post("/books/{id}/cover", bookHandler.UploadCover)
 			// Admin only
 			r.With(middleware.RequireRole(apictx.RoleAdmin)).
 				Post("/admin/backfill-covers", bookHandler.BackfillCovers)
 		})
 	})
+
+	// Serve uploaded cover images as static files
+	if err = os.MkdirAll(cfg.CoversDir, 0755); err != nil {
+		slog.Error("failed to create covers directory", "error", err)
+		os.Exit(1)
+	}
+	r.Handle("/covers/*", http.StripPrefix("/covers/", http.FileServer(http.Dir(cfg.CoversDir))))
 
 	// Swagger UI
 	swaggerDist, _ := fs.Sub(swaggerFiles, "swagger-ui")

@@ -5,6 +5,7 @@ import apiClient from '../api/client'
 import { Card, Badge, Spinner } from '../components'
 import type { LookupResultsPage, LookupFilters } from '../types'
 import { lookupByISBN, lookupByTitleAuthor, checkDuplicate, submitBook as submitBookApi } from '../api/books'
+import { useAuth } from '../context/AuthContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -242,11 +243,73 @@ function ErrorBox({ message }: { message: string }) {
     )
 }
 
+// ── TagInput: comma/enter to add, × to remove ─────────────────────────────────
+
+function TagInput({ values, onChange, placeholder }: {
+    values: string[]
+    onChange: (v: string[]) => void
+    placeholder?: string
+}) {
+    const [input, setInput] = useState('')
+
+    function commit() {
+        const trimmed = input.trim()
+        if (trimmed && !values.includes(trimmed)) {
+            onChange([...values, trimmed])
+        }
+        setInput('')
+    }
+
+    return (
+        <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center',
+            padding: '8px 10px', minHeight: '42px',
+            background: 'var(--input-bg)', border: '1px solid var(--color-border)',
+            borderRadius: 'var(--border-radius)',
+        }}>
+            {values.map(v => (
+                <span key={v} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '4px',
+                    padding: '3px 8px', background: 'var(--color-primary)',
+                    color: 'var(--color-primary-text)', borderRadius: '999px',
+                    fontSize: '12px', fontFamily: 'var(--font-body)', fontWeight: 500,
+                }}>
+                    {v}
+                    <button onClick={() => onChange(values.filter(x => x !== v))} style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'inherit', padding: '0 0 0 2px', fontSize: '13px', lineHeight: 1,
+                    }}>×</button>
+                </span>
+            ))}
+            <input
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commit() }
+                    if (e.key === 'Backspace' && !input && values.length) {
+                        onChange(values.slice(0, -1))
+                    }
+                }}
+                onBlur={commit}
+                placeholder={values.length === 0 ? placeholder : 'Add another…'}
+                style={{
+                    flex: 1, minWidth: '120px', background: 'none', border: 'none',
+                    outline: 'none', color: 'var(--color-text)',
+                    fontSize: '13px', fontFamily: 'var(--font-body)', padding: '2px 4px',
+                }}
+            />
+        </div>
+    )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AddBookPage() {
-    const navigate = useNavigate()
+    const navigate  = useNavigate()
+    const { user }  = useAuth()
+    const isModerator = user?.role === 'moderator' || user?.role === 'admin'
 
+    const [catalogueOnly, setCatalogueOnly] = useState(false)
     const [mode, setMode]               = useState<Mode>('book')
     const [step, setStep]               = useState<Step>('pick')
     const [searchMode, setSearchMode]   = useState<SearchMode>('isbn')
@@ -271,13 +334,20 @@ export default function AddBookPage() {
     const [detailsError, setDetailsError] = useState('')
     const [doneMessage, setDoneMessage]   = useState('')
 
-    const [manualTitle,     setManualTitle]     = useState('')
-    const [manualAuthors,   setManualAuthors]   = useState('')
-    const [manualIsbn,      setManualIsbn]      = useState('')
-    const [manualPublisher, setManualPublisher] = useState('')
-    const [manualPages,     setManualPages]     = useState('')
-    const [manualDesc,      setManualDesc]      = useState('')
-    const [manualError,     setManualError]     = useState('')
+    const [manualTitle,       setManualTitle]       = useState('')
+    const [manualAuthors,     setManualAuthors]     = useState<string[]>([])
+    const [manualTranslators, setManualTranslators] = useState<string[]>([])
+    const [manualIsbn,        setManualIsbn]        = useState('')
+    const [manualAsin,        setManualAsin]        = useState('')
+    const [manualPublisher,   setManualPublisher]   = useState('')
+    const [manualEditionLabel,setManualEditionLabel]= useState('')
+    const [manualPublishedAt, setManualPublishedAt] = useState('')
+    const [manualPages,       setManualPages]       = useState('')
+    const [manualFileFormat,  setManualFileFormat]  = useState('')
+    const [manualAudioFormat, setManualAudioFormat] = useState('')
+    const [manualDesc,        setManualDesc]        = useState('')
+    const [manualCoverUrl,    setManualCoverUrl]    = useState('')
+    const [manualError,       setManualError]       = useState('')
 
     const [searchResults, setSearchResults]     = useState<BookLookup[]>([])
     const [searchTotal, setSearchTotal]         = useState(0)
@@ -285,6 +355,7 @@ export default function AddBookPage() {
 
     const [filters, setFilters] = useState<LookupFilters>({})
     const [showFilters, setShowFilters] = useState(false)
+    const [resultsSort, setResultsSort] = useState<'default' | 'title_asc' | 'year_desc' | 'year_asc'>('default')
 
     // ── Search ──────────────────────────────────────────────────────────────────
 
@@ -312,7 +383,7 @@ export default function AddBookPage() {
                 if (!data?.results?.length && step !== 'results') {
                     // Only redirect to manual if we're not already showing results
                     setManualTitle(titleQuery)
-                    setManualAuthors(authorQuery)
+                    setManualAuthors(authorQuery ? [authorQuery] : [])
                     setStep('manual')
                 } else {
                     setStep('results')
@@ -333,7 +404,7 @@ export default function AddBookPage() {
         onError: () => {
             // API error — also offer manual entry
             if (searchMode === 'isbn') setManualIsbn(isbn.replace(/[-\s]/g, ''))
-            else { setManualTitle(titleQuery); setManualAuthors(authorQuery) }
+            else { setManualTitle(titleQuery); setManualAuthors(authorQuery ? [authorQuery] : []) }
             setSearchError('Nothing found. Fill in the details manually below.')
         },
     })
@@ -355,13 +426,14 @@ export default function AddBookPage() {
     const submitMutation = useMutation({
         mutationFn: () => {
             if (!lookupResult) throw new Error('No book data')
-            const dbFormat = mode === 'audiobook' ? 'audiobook' : format  // hardcover | paperback | ebook
+            const dbFormat = mode === 'audiobook' ? 'audiobook' : format
             return submitBookApi({
                 title:       lookupResult.title,
                 authors:     lookupResult.authors ?? [],
                 description: lookupResult.description,
                 cover_url:   lookupResult.cover_url,
                 genres:      [],
+                catalogue_only: catalogueOnly,
                 edition: {
                     format:           dbFormat,
                     isbn:             getIsbn(lookupResult),
@@ -370,12 +442,15 @@ export default function AddBookPage() {
                     page_count:       mode === 'book' ? lookupResult.page_count : undefined,
                     duration_minutes: mode === 'audiobook' && duration ? parseInt(duration) : undefined,
                     narrator:         mode === 'audiobook' ? narrator : undefined,
+                    file_format:      mode === 'book' && format === 'ebook' ? manualFileFormat || undefined : undefined,
                 },
-                condition: (mode === 'book' && format !== 'ebook') ? condition : undefined,
+                condition: (mode === 'book' && !catalogueOnly && format !== 'ebook') ? condition : undefined,
             })
         },
         onSuccess: () => {
-            setDoneMessage('Book submitted! It will appear in the catalogue once a moderator approves it.')
+            setDoneMessage(catalogueOnly
+                ? 'Book added to the catalogue and is now publicly visible.'
+                : 'Book submitted! It will appear in the catalogue once a moderator approves it.')
             setStep('done')
         },
         onError: () => setDetailsError('Submission failed. Please try again.'),
@@ -383,27 +458,35 @@ export default function AddBookPage() {
 
     const submitManualMutation = useMutation({
         mutationFn: () => {
-            const authors = manualAuthors.split(',').map(a => a.trim()).filter(Boolean)
             return submitBookApi({
                 title:       manualTitle.trim(),
-                authors,
+                authors:     manualAuthors,
                 description: manualDesc || undefined,
-                cover_url:   undefined,
+                cover_url:   manualCoverUrl || undefined,
                 genres:      [],
+                catalogue_only: catalogueOnly,
                 edition: {
                     format:           mode === 'audiobook' ? 'audiobook' : format,
                     isbn:             manualIsbn || undefined,
+                    asin:             manualAsin || undefined,
                     language,
                     publisher:        manualPublisher || undefined,
+                    edition:          manualEditionLabel || undefined,
+                    published_at:     manualPublishedAt || undefined,
                     page_count:       mode === 'book' && manualPages ? parseInt(manualPages) : undefined,
+                    file_format:      mode === 'book' && format === 'ebook' ? manualFileFormat || undefined : undefined,
                     duration_minutes: mode === 'audiobook' && duration ? parseInt(duration) : undefined,
                     narrator:         mode === 'audiobook' ? narrator || undefined : undefined,
+                    audio_format:     mode === 'audiobook' ? manualAudioFormat || undefined : undefined,
+                    translators:      manualTranslators.length > 0 ? manualTranslators : undefined,
                 },
-                condition: (mode === 'book' && format !== 'ebook') ? condition : undefined,
+                condition: (mode === 'book' && !catalogueOnly && format !== 'ebook') ? condition : undefined,
             })
         },
         onSuccess: () => {
-            setDoneMessage('Book submitted! It will appear in the catalogue once a moderator approves it.')
+            setDoneMessage(catalogueOnly
+                ? 'Book added to the catalogue and is now publicly visible.'
+                : 'Book submitted! It will appear in the catalogue once a moderator approves it.')
             setStep('done')
         },
         onError: () => setManualError('Submission failed. Please try again.'),
@@ -431,13 +514,16 @@ export default function AddBookPage() {
 
     function reset() {
         setStep('pick')
+        setCatalogueOnly(false)
         setIsbn(''); setTitleQuery(''); setAuthorQuery(''); setSearchError('')
         setLookupResult(null); setExistingEdition(null)
         setFormat('paperback'); setCondition('good')
         setNarrator(''); setDuration('')
         setLanguage('en'); setDetailsError(''); setDoneMessage('')
-        setManualTitle(''); setManualAuthors(''); setManualIsbn('')
-        setManualPublisher(''); setManualPages(''); setManualDesc(''); setManualError('')
+        setManualTitle(''); setManualAuthors([]); setManualTranslators([]); setManualIsbn('')
+        setManualAsin(''); setManualPublisher(''); setManualEditionLabel(''); setManualPublishedAt('')
+        setManualPages(''); setManualFileFormat(''); setManualAudioFormat('')
+        setManualDesc(''); setManualCoverUrl(''); setManualError('')
         setFilters({})
         setShowFilters(false)
         setSearchResults([])
@@ -448,14 +534,22 @@ export default function AddBookPage() {
     // ── Render ───────────────────────────────────────────────────────────────────
 
     const isAudiobook = mode === 'audiobook'
-    const filteredResults = searchResults.filter(book => {
-        if (filters.language && book.language !== filters.language) return false
-        if (filters.publisher && !book.publisher?.toLowerCase().includes(filters.publisher.toLowerCase())) return false
-        if (filters.author && !book.authors?.some(a => a.toLowerCase().includes(filters.author!.toLowerCase()))) return false
-        if (filters.yearFrom && (!book.published_date || parseInt(book.published_date) < filters.yearFrom)) return false
-        if (filters.yearTo && (!book.published_date || parseInt(book.published_date) > filters.yearTo)) return false
-        return true
-    })
+    const filteredResults = (() => {
+        let list = searchResults.filter(book => {
+            if (filters.language && book.language !== filters.language) return false
+            if (filters.publisher && !book.publisher?.toLowerCase().includes(filters.publisher.toLowerCase())) return false
+            if (filters.author && !book.authors?.some(a => a.toLowerCase().includes(filters.author!.toLowerCase()))) return false
+            if (filters.yearFrom && (!book.published_date || parseInt(book.published_date) < filters.yearFrom)) return false
+            if (filters.yearTo && (!book.published_date || parseInt(book.published_date) > filters.yearTo)) return false
+            return true
+        })
+        switch (resultsSort) {
+            case 'title_asc':  list = [...list].sort((a, b) => a.title.localeCompare(b.title)); break
+            case 'year_desc':  list = [...list].sort((a, b) => (b.published_date ?? '').localeCompare(a.published_date ?? '')); break
+            case 'year_asc':   list = [...list].sort((a, b) => (a.published_date ?? '').localeCompare(b.published_date ?? '')); break
+        }
+        return list
+    })()
 
     return (
         <div style={{
@@ -477,7 +571,7 @@ export default function AddBookPage() {
                     margin: 0, fontSize: '24px', fontWeight: 700,
                     color: 'var(--color-text)', fontFamily: 'var(--font-heading)',
                 }}>
-                    Add to my Library
+                    {catalogueOnly ? 'Add to Catalogue' : 'Add to my Library'}
                 </h1>
                 <p style={{
                     margin: '6px 0 0', fontSize: '13px',
@@ -485,6 +579,37 @@ export default function AddBookPage() {
                 }}>
                     Choose what you're adding, then search for it.
                 </p>
+
+                {/* Intent toggle — mod/admin only */}
+                {isModerator && (
+                    <div style={{
+                        display: 'flex', marginTop: '16px',
+                        background: 'var(--color-surface-alt)',
+                        borderRadius: 'var(--border-radius)', padding: '3px',
+                        width: 'fit-content', border: '1px solid var(--color-border)',
+                    }}>
+                        {([
+                            { value: false, label: '🏠 Add to my Library' },
+                            { value: true,  label: '📚 Catalogue only'    },
+                        ] as { value: boolean; label: string }[]).map(opt => (
+                            <button
+                                key={String(opt.value)}
+                                onClick={() => setCatalogueOnly(opt.value)}
+                                style={{
+                                    padding: '8px 18px', border: 'none',
+                                    borderRadius: 'var(--border-radius)',
+                                    background: catalogueOnly === opt.value ? 'var(--color-primary)' : 'transparent',
+                                    color: catalogueOnly === opt.value ? 'var(--color-primary-text)' : 'var(--color-text-muted)',
+                                    fontSize: '13px', fontWeight: catalogueOnly === opt.value ? 600 : 400,
+                                    cursor: 'pointer', transition: 'var(--transition)',
+                                    fontFamily: 'var(--font-body)',
+                                }}
+                            >
+                                {opt.label}
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
 
             <StepIndicator current={step} />
@@ -648,7 +773,7 @@ export default function AddBookPage() {
                     <button
                         onClick={() => {
                             if (searchMode === 'isbn') setManualIsbn(isbn.replace(/[-\s]/g, ''))
-                            else { setManualTitle(titleQuery); setManualAuthors(authorQuery) }
+                            else { setManualTitle(titleQuery); setManualAuthors(authorQuery ? [authorQuery] : []) }
                             setStep('manual')
                         }}
                         style={{
@@ -676,8 +801,18 @@ export default function AddBookPage() {
                         </p>
                     </Card>
 
-                    {/* Filters toggle */}
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    {/* Sort + Filters toolbar */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <select
+                            value={resultsSort}
+                            onChange={e => setResultsSort(e.target.value as typeof resultsSort)}
+                            style={{ padding: '6px 10px', background: 'var(--input-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', color: 'var(--color-text)', fontSize: '12px', fontFamily: 'var(--font-body)' }}
+                        >
+                            <option value="default">Sort: Relevance</option>
+                            <option value="title_asc">Sort: Title A → Z</option>
+                            <option value="year_desc">Sort: Newest first</option>
+                            <option value="year_asc">Sort: Oldest first</option>
+                        </select>
                         <button
                             onClick={() => setShowFilters(v => !v)}
                             style={{
@@ -836,7 +971,7 @@ export default function AddBookPage() {
                     <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
                         <SecondaryButton label="← Back" onClick={() => setStep('search')} />
                         <button
-                            onClick={() => { setManualTitle(titleQuery); setManualAuthors(authorQuery); setStep('manual') }}
+                            onClick={() => { setManualTitle(titleQuery); setManualAuthors(authorQuery ? [authorQuery] : []); setStep('manual') }}
                             style={{
                                 background: 'none', border: 'none', cursor: 'pointer',
                                 color: 'var(--color-text-muted)', fontSize: '12px',
@@ -950,17 +1085,39 @@ export default function AddBookPage() {
                             <TextInput value={manualTitle} onChange={setManualTitle} placeholder="e.g. The Name of the Wind" />
                         </div>
                         <div>
-                            <FieldLabel label="Author(s)" hint="Required — separate multiple with commas" />
-                            <TextInput value={manualAuthors} onChange={setManualAuthors} placeholder="e.g. Patrick Rothfuss" />
+                            <FieldLabel label="Author(s)" hint="Required — press Enter or comma to add each name" />
+                            <TagInput values={manualAuthors} onChange={setManualAuthors} placeholder="e.g. Patrick Rothfuss" />
                         </div>
-                        <div>
-                            <FieldLabel label="ISBN" hint="Optional" />
-                            <TextInput value={manualIsbn} onChange={setManualIsbn} placeholder="e.g. 9780756404079" />
+                        {!isAudiobook && (
+                            <div>
+                                <FieldLabel label="Translator(s)" hint="Optional — press Enter or comma to add each name" />
+                                <TagInput values={manualTranslators} onChange={setManualTranslators} placeholder="e.g. Margaret Jull Costa" />
+                            </div>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            <div>
+                                <FieldLabel label="ISBN" hint="Optional" />
+                                <TextInput value={manualIsbn} onChange={setManualIsbn} placeholder="e.g. 9780756404079" />
+                            </div>
+                            <div>
+                                <FieldLabel label="ASIN" hint="Optional — Amazon ID" />
+                                <TextInput value={manualAsin} onChange={setManualAsin} placeholder="e.g. B00AIUUXS4" />
+                            </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <div>
                                 <FieldLabel label="Publisher" hint="Optional" />
                                 <TextInput value={manualPublisher} onChange={setManualPublisher} placeholder="e.g. DAW Books" />
+                            </div>
+                            <div>
+                                <FieldLabel label="Published year" hint="Optional" />
+                                <TextInput value={manualPublishedAt} onChange={setManualPublishedAt} placeholder="e.g. 2007" />
+                            </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            <div>
+                                <FieldLabel label="Edition label" hint="Optional" />
+                                <TextInput value={manualEditionLabel} onChange={setManualEditionLabel} placeholder="e.g. 10th Anniversary" />
                             </div>
                             <div>
                                 <FieldLabel label={isAudiobook ? 'Duration (min)' : 'Page count'} hint="Optional" />
@@ -973,9 +1130,39 @@ export default function AddBookPage() {
                             </div>
                         </div>
                         {isAudiobook && (
+                            <>
+                                <div>
+                                    <FieldLabel label="Narrator" hint="Optional" />
+                                    <TextInput value={narrator} onChange={setNarrator} placeholder="e.g. Stephen Fry" />
+                                </div>
+                                <div>
+                                    <FieldLabel label="Audio format" hint="Optional" />
+                                    <ToggleGroup
+                                        value={manualAudioFormat}
+                                        onChange={setManualAudioFormat}
+                                        options={[
+                                            { value: 'MP3',  label: 'MP3'  },
+                                            { value: 'AAC',  label: 'AAC'  },
+                                            { value: 'FLAC', label: 'FLAC' },
+                                            { value: 'WMA',  label: 'WMA'  },
+                                        ]}
+                                    />
+                                </div>
+                            </>
+                        )}
+                        {!isAudiobook && format === 'ebook' && !catalogueOnly && (
                             <div>
-                                <FieldLabel label="Narrator" hint="Optional" />
-                                <TextInput value={narrator} onChange={setNarrator} placeholder="e.g. Stephen Fry" />
+                                <FieldLabel label="File format" hint="Optional" />
+                                <ToggleGroup
+                                    value={manualFileFormat}
+                                    onChange={setManualFileFormat}
+                                    options={[
+                                        { value: 'EPUB', label: 'EPUB' },
+                                        { value: 'PDF',  label: 'PDF'  },
+                                        { value: 'MOBI', label: 'MOBI' },
+                                        { value: 'AZW3', label: 'AZW3' },
+                                    ]}
+                                />
                             </div>
                         )}
                         <div>
@@ -994,9 +1181,45 @@ export default function AddBookPage() {
                             />
                         </div>
 
+                        {/* Cover image — file upload (base64 placeholder until real upload endpoint exists) */}
+                        <div>
+                            <FieldLabel label="Cover Image" hint="Optional — upload a photo of the cover" />
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                                {manualCoverUrl && (
+                                    <div style={{ width: '60px', height: '82px', flexShrink: 0, borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--color-border)', background: `url(${manualCoverUrl}) center/cover no-repeat` }} />
+                                )}
+                                <div style={{ flex: 1 }}>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        id="manual-cover-upload"
+                                        style={{ display: 'none' }}
+                                        onChange={e => {
+                                            const file = e.target.files?.[0]
+                                            if (!file) return
+                                            const reader = new FileReader()
+                                            reader.onload = ev => setManualCoverUrl(ev.target?.result as string)
+                                            reader.readAsDataURL(file)
+                                        }}
+                                    />
+                                    <label
+                                        htmlFor="manual-cover-upload"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', fontSize: '12px', fontFamily: 'var(--font-body)', color: 'var(--color-text)', cursor: 'pointer' }}
+                                    >
+                                        📷 {manualCoverUrl ? 'Change image' : 'Choose image'}
+                                    </label>
+                                    {manualCoverUrl && (
+                                        <button onClick={() => setManualCoverUrl('')} style={{ marginLeft: '8px', background: 'none', border: 'none', color: 'var(--color-error)', fontSize: '11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+                                            Remove
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
                         <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)' }} />
 
-                        {!isAudiobook && (
+                        {!isAudiobook && !catalogueOnly && (
                             <div>
                                 <FieldLabel label="Format" />
                                 <ToggleGroup
@@ -1010,7 +1233,7 @@ export default function AddBookPage() {
                                 />
                             </div>
                         )}
-                        {!isAudiobook && format !== 'ebook' && (
+                        {!isAudiobook && !catalogueOnly && format !== 'ebook' && (
                             <div>
                                 <FieldLabel label="Condition" />
                                 <ToggleGroup
@@ -1058,10 +1281,14 @@ export default function AddBookPage() {
                         <div style={{ display: 'flex', gap: '10px' }}>
                             <SecondaryButton label="← Back to search" onClick={() => setStep('search')} />
                             <PrimaryButton
-                                label={submitManualMutation.isPending ? 'Submitting...' : 'Submit for review'}
+                                label={
+                                    catalogueOnly
+                                        ? (submitManualMutation.isPending ? 'Adding...'     : 'Add to catalogue')
+                                        : (submitManualMutation.isPending ? 'Submitting...' : 'Submit for review')
+                                }
                                 onClick={() => submitManualMutation.mutate()}
                                 isLoading={submitManualMutation.isPending}
-                                disabled={!manualTitle.trim() || !manualAuthors.trim()}
+                                disabled={!manualTitle.trim() || manualAuthors.length === 0}
                                 fullWidth
                             />
                         </div>
@@ -1096,7 +1323,7 @@ export default function AddBookPage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
                             {/* ── BOOK fields ── */}
-                            {!isAudiobook && (
+                            {!isAudiobook && !catalogueOnly && (
                                 <>
                                     <div>
                                         <FieldLabel label="Format" />
@@ -1198,9 +1425,11 @@ export default function AddBookPage() {
                                     margin: 0, fontSize: '12px', color: 'var(--color-text-muted)',
                                     fontFamily: 'var(--font-body)', lineHeight: '1.6',
                                 }}>
-                                    {existingEdition
-                                        ? '📚 This copy will be added to your library immediately.'
-                                        : '🔍 This book will be reviewed by a moderator before appearing in the catalogue. Once approved, it will be added to your library automatically.'}
+                                    {catalogueOnly
+                                        ? '📚 This book will be added directly to the catalogue with no copy linked to any user.'
+                                        : existingEdition
+                                            ? '📚 This copy will be added to your library immediately.'
+                                            : '🔍 This book will be reviewed by a moderator before appearing in the catalogue. Once approved, it will be added to your library automatically.'}
                                 </p>
                             </div>
 
@@ -1210,11 +1439,13 @@ export default function AddBookPage() {
                                 <SecondaryButton label="← Back" onClick={() => setStep('preview')} />
                                 <PrimaryButton
                                     label={
-                                        existingEdition
-                                            ? (addCopyMutation.isPending ? 'Adding...'     : 'Add to my library')
-                                            : (submitMutation.isPending  ? 'Submitting...' : 'Submit for review')
+                                        catalogueOnly
+                                            ? (submitMutation.isPending     ? 'Adding...'      : 'Add to catalogue')
+                                            : existingEdition
+                                                ? (addCopyMutation.isPending ? 'Adding...'      : 'Add to my library')
+                                                : (submitMutation.isPending  ? 'Submitting...'  : 'Submit for review')
                                     }
-                                    onClick={() => existingEdition ? addCopyMutation.mutate() : submitMutation.mutate()}
+                                    onClick={() => existingEdition && !catalogueOnly ? addCopyMutation.mutate() : submitMutation.mutate()}
                                     isLoading={addCopyMutation.isPending || submitMutation.isPending}
                                     fullWidth
                                 />
@@ -1246,7 +1477,10 @@ export default function AddBookPage() {
                         </p>
                         <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
                             <SecondaryButton label="Add another" onClick={reset} />
-                            <PrimaryButton label="Go to my library" onClick={() => navigate('/library')} />
+                            <PrimaryButton
+                                label={catalogueOnly ? 'Go to catalogue' : 'Go to my library'}
+                                onClick={() => navigate(catalogueOnly ? '/books' : '/library')}
+                            />
                         </div>
                     </div>
                 </Card>

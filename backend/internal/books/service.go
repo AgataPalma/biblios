@@ -2,14 +2,34 @@ package books
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type bookRepository interface {
+	UpdateBook(ctx context.Context, id string, title, description, coverURL *string) error
+	FindUserBooksWithCopies(ctx context.Context, userID string, page, limit int) ([]UserBook, int, error)
+	UpdateReadingStatus(ctx context.Context, copyID, userID, status string) error
+	RemoveCopy(ctx context.Context, copyID, userID string) error
+	ListApprovedBooks(ctx context.Context, page, limit int, sort string) ([]Book, int, error)
+	FindBookWithDetails(ctx context.Context, id string) (*Book, error)
+	FindUserBooks(ctx context.Context, userID string, page, limit int) ([]Book, int, error)
+	FindBooksWithoutCovers(ctx context.Context) ([]BookWithDetails, error)
+	UpdateCoverURL(ctx context.Context, bookID, coverURL string) error
+	FindEditionByISBN(ctx context.Context, isbn string) (*Edition, error)
+	FindBookByID(ctx context.Context, id string) (*Book, error)
+	FindSubmissionByID(ctx context.Context, id string) (*Submission, error)
+	DeleteBook(ctx context.Context, id string) error
+	withDB(db DB) *txRepository // needed so SubmitBook can create a txRepository
+	FindEditionByID(ctx context.Context, id string) (*Edition, error)
+}
+
 type Service struct {
-	repo *Repository
+	repo bookRepository
 	db   *pgxpool.Pool
 }
 
@@ -18,15 +38,16 @@ func NewService(repo *Repository, db *pgxpool.Pool) *Service {
 }
 
 type SubmitBookInput struct {
-	Title       string
-	Description *string
-	CoverURL    *string
-	Authors     []string
-	Genres      []string
-	Edition     EditionInput
-	Condition   *string
-	UserID      string
-	UserRole    apictx.Role
+	Title         string
+	Description   *string
+	CoverURL      *string
+	Authors       []string
+	Genres        []string
+	Edition       EditionInput
+	Condition     *string
+	UserID        string
+	UserRole      apictx.Role
+	CatalogueOnly bool // when true, book is added to catalogue only — no personal copy created
 }
 
 type EditionInput struct {
@@ -41,6 +62,8 @@ type EditionInput struct {
 	FileFormat      *string
 	DurationMinutes *int
 	AudioFormat     *string
+	Narrator        *string  // single name — backend does FindOrCreate + link
+	Translators     []string // multiple names — each gets FindOrCreate + link
 }
 
 type SubmitBookResult struct {
@@ -63,13 +86,27 @@ type AddCopyResult struct {
 	Submission Submission
 }
 
+type ListBooksResult struct {
+	Books []Book `json:"books"`
+	Total int    `json:"total"`
+	Page  int    `json:"page"`
+	Limit int    `json:"limit"`
+}
+
+type UpdateBookInput struct {
+	ID          string
+	Title       *string
+	Description *string
+	CoverURL    *string
+}
+
 func (s *Service) AddCopyOfExistingEdition(ctx context.Context, input AddCopyInput) (AddCopyResult, error) {
 	var result AddCopyResult
 	var err error
 
 	// Check edition exists and is approved
 	var edition *Edition
-	edition, err = s.repo.FindEditionByISBN(ctx, input.EditionID)
+	edition, err = s.repo.FindEditionByID(ctx, input.EditionID)
 	if err != nil || edition == nil {
 		return AddCopyResult{}, fmt.Errorf("edition not found")
 	}
@@ -91,7 +128,7 @@ func (s *Service) AddCopyOfExistingEdition(ctx context.Context, input AddCopyInp
 	if err != nil {
 		return AddCopyResult{}, fmt.Errorf("failed to start transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var repo *txRepository = s.repo.withDB(tx)
 
@@ -136,7 +173,7 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 	if err != nil {
 		return SubmitBookResult{}, fmt.Errorf("failed to start transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// All operations go through the transaction
 	var repo *txRepository = s.repo.withDB(tx)
@@ -192,14 +229,48 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 	}
 	edition, err = repo.InsertEdition(ctx, edition, autoApprove)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return SubmitBookResult{}, fmt.Errorf("edition with this ISBN already exists")
+		}
 		return SubmitBookResult{}, err
+	}
+
+	// Link narrator (audiobooks)
+	if input.Edition.Narrator != nil && *input.Edition.Narrator != "" {
+		var narrator Narrator
+		narrator, err = repo.FindOrCreateNarrator(ctx, *input.Edition.Narrator, autoApprove)
+		if err != nil {
+			return SubmitBookResult{}, err
+		}
+		err = repo.LinkEditionNarrator(ctx, edition.ID, narrator.ID)
+		if err != nil {
+			return SubmitBookResult{}, err
+		}
+		edition.Narrators = append(edition.Narrators, narrator)
+	}
+
+	// Link translators (non-audiobooks)
+	for _, translatorName := range input.Edition.Translators {
+		if translatorName == "" {
+			continue
+		}
+		var translator Translator
+		translator, err = repo.FindOrCreateTranslator(ctx, translatorName, autoApprove)
+		if err != nil {
+			return SubmitBookResult{}, err
+		}
+		err = repo.LinkEditionTranslator(ctx, edition.ID, translator.ID)
+		if err != nil {
+			return SubmitBookResult{}, err
+		}
+		edition.Translators = append(edition.Translators, translator)
 	}
 
 	result.Book = book
 	result.Edition = edition
 
-	// If auto approve, create copy immediately
-	if autoApprove {
+	// If auto approve, create copy — unless this is a catalogue-only submission
+	if autoApprove && !input.CatalogueOnly {
 		var copy Copy
 		copy, err = repo.InsertCopy(ctx, edition.ID, input.UserID, input.Condition)
 		if err != nil {
@@ -209,6 +280,14 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 
 		var submission Submission
 		submission, err = repo.InsertSubmissionApproved(ctx, input.UserID, book.ID, edition.ID, copy.ID)
+		if err != nil {
+			return SubmitBookResult{}, err
+		}
+		result.Submission = submission
+	} else if autoApprove && input.CatalogueOnly {
+		// Book and edition are approved and visible in the catalogue — no copy, no owner
+		var submission Submission
+		submission, err = repo.InsertSubmissionApprovedNoCopy(ctx, input.UserID, book.ID, edition.ID)
 		if err != nil {
 			return SubmitBookResult{}, err
 		}
@@ -229,19 +308,12 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 	return result, nil
 }
 
-type ListBooksResult struct {
-	Books []Book `json:"books"`
-	Total int    `json:"total"`
-	Page  int    `json:"page"`
-	Limit int    `json:"limit"`
-}
-
-func (s *Service) ListBooks(ctx context.Context, page int, limit int) (ListBooksResult, error) {
+func (s *Service) ListBooks(ctx context.Context, page int, limit int, sort string) (ListBooksResult, error) {
 	var bookList []Book
 	var total int
 	var err error
 
-	bookList, total, err = s.repo.ListApprovedBooks(ctx, page, limit)
+	bookList, total, err = s.repo.ListApprovedBooks(ctx, page, limit, sort)
 	if err != nil {
 		return ListBooksResult{}, err
 	}
@@ -262,17 +334,7 @@ func (s *Service) GetBook(ctx context.Context, id string) (*Book, error) {
 	return s.repo.FindBookWithDetails(ctx, id)
 }
 
-type UpdateBookInput struct {
-	ID          string
-	Title       string
-	Description *string
-	CoverURL    *string
-}
-
 func (s *Service) UpdateBook(ctx context.Context, input UpdateBookInput) error {
-	if input.Title == "" {
-		return fmt.Errorf("title is required")
-	}
 	return s.repo.UpdateBook(ctx, input.ID, input.Title, input.Description, input.CoverURL)
 }
 
@@ -327,4 +389,13 @@ func (s *Service) GetMyLibrary(ctx context.Context, userID string, page, limit i
 		books = []UserBook{}
 	}
 	return books, total, nil
+}
+
+func (s *Service) FindEditionByID(ctx context.Context, id string) (*Edition, error) {
+	return s.repo.FindEditionByID(ctx, id)
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

@@ -1,5 +1,6 @@
 import apiClient from './client'
-import type { Book, LookupResult, LookupResultsPage, Submission } from '../types'
+import type { Book, LookupResult, LookupResultsPage, Submission, Review, ReviewsResponse } from '../types'
+
 
 export interface BooksResponse {
     books: Book[]
@@ -8,20 +9,47 @@ export interface BooksResponse {
     limit: number
 }
 
+export interface UpdateBookPayload {
+    title?: string
+    description?: string
+    cover_url?: string
+    authors?: string[]
+    genres?: string[]
+    edition?: {
+        format: string
+        isbn?: string
+        language: string
+        publisher?: string
+        edition?: string          // edition name/label
+        page_count?: number
+        narrator?: string         // audiobook narrator name (backend creates Narrator)
+        translator?: string       // translator name (backend creates Translator)
+        duration_minutes?: number
+    }
+
+}
+
 export interface SubmitBookPayload {
     title: string
     description?: string
     cover_url?: string
     authors: string[]
     genres: string[]
+    catalogue_only?: boolean
     edition: {
         format: string
         isbn?: string
+        asin?: string
         language: string
         publisher?: string
+        edition?: string          // edition name/label e.g. "Illustrated", "10th Anniversary"
+        published_at?: string     // e.g. "2001" or "2001-09-01"
         page_count?: number
-        narrator?: string
+        file_format?: string      // ebook: EPUB | PDF | MOBI | AZW3
+        narrator?: string         // audiobook narrator name
+        translators?: string[]    // translator names (multiple allowed)
         duration_minutes?: number
+        audio_format?: string     // audiobook: MP3 | AAC | WMA | FLAC
     }
     condition?: string
 }
@@ -44,6 +72,17 @@ export async function submitBook(data: SubmitBookPayload): Promise<Submission> {
 export async function lookupByISBN(isbn: string): Promise<LookupResult> {
     const response = await apiClient.get<LookupResult>(`/books/lookup?isbn=${isbn}`)
     return response.data
+}
+
+// Upload a cover image file for a book (mod/admin only).
+// Sends multipart/form-data to POST /books/{id}/cover and returns the stored public URL.
+export async function uploadBookCover(bookId: string, file: File): Promise<string> {
+    const formData = new FormData()
+    formData.append('cover', file)
+    const res = await apiClient.post<{ cover_url: string }>(`/books/${bookId}/cover`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return res.data.cover_url
 }
 
 export async function lookupByTitleAuthor(
@@ -91,4 +130,55 @@ export async function approveSubmission(id: string): Promise<void> {
 
 export async function rejectSubmission(id: string, reason: string): Promise<void> {
     await apiClient.put(`/moderation/submissions/${id}/reject`, { reason })
+}
+
+
+export async function getBookReviews(
+    bookId: string,
+    page = 1,
+    limit = 10,
+): Promise<ReviewsResponse> {
+    const res = await apiClient.get<ReviewsResponse>(
+        `/books/${bookId}/reviews?page=${page}&limit=${limit}`,
+    )
+    return res.data
+}
+
+export async function submitReview(
+    bookId: string,
+    payload: { rating: number; body?: string; is_public?: boolean },
+): Promise<Review> {
+    const res = await apiClient.post<Review>(`/books/${bookId}/reviews`, payload)
+    return res.data
+}
+
+export async function updateMyReview(
+    bookId: string,
+    payload: { rating: number; body?: string; is_public?: boolean },
+): Promise<Review> {
+    const res = await apiClient.put<Review>(`/books/${bookId}/reviews/me`, payload)
+    return res.data
+}
+
+// Add a copy of an existing edition to the user's library
+export async function addCopy(
+    editionId: string,
+    opts?: { condition?: string }
+): Promise<void> {
+    await apiClient.post('/books/copies', { edition_id: editionId, ...opts })
+}
+
+// Update book fields — moderator/admin only (PUT /books/{id})
+export async function updateBook(id: string, data: UpdateBookPayload): Promise<Book> {
+    const res = await apiClient.put<Book>(`/books/${id}`, data)
+    return res.data
+}
+
+// PLACEHOLDER — wishlist backend not yet implemented
+export async function addToWishlist(_bookId: string): Promise<void> {
+    alert('Wishlist feature coming soon!')
+}
+
+export async function removeFromWishlist(_bookId: string): Promise<void> {
+    alert('Wishlist feature coming soon!')
 }

@@ -10,6 +10,8 @@ type Config struct {
 	JWTSecret         string
 	Port              string
 	GoogleBooksAPIKey string
+	CoversDir         string // filesystem path where uploaded cover images are stored
+
 }
 
 func Load() Config {
@@ -19,6 +21,7 @@ func Load() Config {
 		JWTSecret:         getEnv("JWT_SECRET", "changeme"),
 		Port:              getEnv("PORT", "8080"),
 		GoogleBooksAPIKey: getEnv("GOOGLE_BOOKS_API_KEY", ""),
+		CoversDir:         getEnv("COVERS_DIR", "./data/covers"),
 	}
 }
 

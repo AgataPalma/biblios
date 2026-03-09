@@ -38,6 +38,7 @@ backend/*.test
 .env.local
 .env.prod
 *.env
+env
 
 # ─── Docker ───────────────────────────────────────────
 postgres-data/

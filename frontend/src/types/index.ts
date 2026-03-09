@@ -133,3 +133,64 @@ export interface Submission {
     created_at: string
     updated_at: string
 }
+
+// ── Replace the existing Edition interface with this ────────────────────────
+export interface Edition {
+    id: string
+    book_id: string
+    format: string            // hardcover | paperback | ebook | audiobook
+    isbn?: string
+    asin?: string
+    language?: string
+    publisher?: string
+    edition?: string          // "2nd Edition", "Anniversary Edition" etc
+    published_at?: string
+    page_count?: number
+    file_format?: string      // EPUB | PDF | MOBI | AZW3
+    duration_minutes?: number
+    audio_format?: string     // MP3 | AAC | WMA | FLAC
+    status: string
+    translators?: Translator[]
+    narrators?: Narrator[]
+    created_at: string
+    updated_at: string
+}
+
+// ── These already exist in book.go — ensure they exist in types/index.ts ────
+export interface Narrator {
+    id: string
+    name: string
+    status: string
+    created_at: string
+    updated_at: string
+}
+
+export interface Translator {
+    id: string
+    name: string
+    status: string
+    created_at: string
+    updated_at: string
+}
+
+// ── Add Review interface ─────────────────────────────────────────────────────
+export interface Review {
+    id: string
+    book_id: string
+    user_id?: string          // nullable after migration 000016 (anonymisation)
+    username?: string         // joined from users table in the API response
+    avatar_url?: string
+    rating: number            // 1–5
+    body?: string
+    is_public: boolean
+    created_at: string
+    updated_at: string
+}
+
+export interface ReviewsResponse {
+    reviews: Review[]
+    total: number
+    page: number
+    limit: number
+    average_rating?: number   // computed by the backend
+}

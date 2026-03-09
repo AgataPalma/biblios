@@ -71,12 +71,7 @@ func (s *Service) Approve(ctx context.Context, input ApproveInput) error {
 
 		// Create the book copy now that everything is approved
 		var copy books.Copy
-		copy, err = s.repo.InsertCopyDirect(ctx, *submission.EditionID, submission.SubmittedBy)
-		if err != nil {
-			return err
-		}
-
-		// Update submission with copy ID
+		copy, err = s.repo.InsertCopyDirect(ctx, *submission.EditionID, submission.SubmittedBy, nil)
 		err = s.repo.ApproveSubmissionWithCopy(ctx, input.SubmissionID, input.ReviewerID, copy.ID)
 		if err != nil {
 			return err
@@ -138,7 +133,7 @@ func (s *Service) EditAndApprove(ctx context.Context, input EditAndApproveInput)
 	before, _ = json.Marshal(submission)
 
 	// Apply edits
-	err = s.repo.UpdateBookDetails(ctx, *submission.BookID, input.Title, input.Description, input.CoverURL)
+	err = s.repo.UpdateBook(ctx, *submission.BookID, &input.Title, input.Description, input.CoverURL)
 	if err != nil {
 		return err
 	}
@@ -156,7 +151,7 @@ func (s *Service) EditAndApprove(ctx context.Context, input EditAndApproveInput)
 
 	// Create copy
 	var copy books.Copy
-	copy, err = s.repo.InsertCopyDirect(ctx, *submission.EditionID, submission.SubmittedBy)
+	copy, err = s.repo.InsertCopyDirect(ctx, *submission.EditionID, submission.SubmittedBy, nil)
 	if err != nil {
 		return err
 	}
