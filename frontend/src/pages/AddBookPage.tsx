@@ -45,7 +45,16 @@ function getIsbn(result: BookLookup): string | undefined {
 
 async function addCopyToLibrary(
     editionId: string,
-    opts?: { condition?: string; narrator?: string; duration?: number }
+    opts?: {
+        condition?: string
+        reading_status?: string
+        current_page?: number | null
+        started_reading_at?: string | null
+        finished_reading_at?: string | null
+        owned_by_user?: boolean
+        borrowed_from?: string | null
+        location?: string | null
+    }
 ): Promise<void> {
     await apiClient.post('/books/copies', { edition_id: editionId, ...opts })
 }
@@ -350,6 +359,15 @@ export default function AddBookPage() {
     const [manualCoverUrl,    setManualCoverUrl]    = useState('')
     const [manualError,       setManualError]       = useState('')
 
+    // Reading state + ownership — shared across all add paths, only relevant when !catalogueOnly
+    const [addReadingStatus,  setAddReadingStatus]  = useState<'want_to_read'|'reading'|'read'>('want_to_read')
+    const [addCurrentPage,    setAddCurrentPage]    = useState('')
+    const [addStartedAt,      setAddStartedAt]      = useState('')
+    const [addFinishedAt,     setAddFinishedAt]     = useState('')
+    const [addOwnedByUser,    setAddOwnedByUser]    = useState(true)
+    const [addBorrowedFrom,   setAddBorrowedFrom]   = useState('')
+    const [addLocation,       setAddLocation]       = useState('')
+
     const [searchResults, setSearchResults]     = useState<BookLookup[]>([])
     const [searchTotal, setSearchTotal]         = useState(0)
     const [searchPage, setSearchPage]           = useState(1)
@@ -414,9 +432,14 @@ export default function AddBookPage() {
 
     const addCopyMutation = useMutation({
         mutationFn: () => addCopyToLibrary(existingEdition!.id, {
-            condition: mode === 'book' && format !== 'ebook' ? condition : undefined,
-            narrator:  mode === 'audiobook' ? narrator : undefined,
-            duration:  mode === 'audiobook' && duration ? parseInt(duration) : undefined,
+            condition:           mode === 'book' && format !== 'ebook' ? condition : undefined,
+            reading_status:      addReadingStatus,
+            current_page:        addReadingStatus === 'reading' && addCurrentPage ? parseInt(addCurrentPage) : null,
+            started_reading_at:  (addReadingStatus === 'reading' || addReadingStatus === 'read') ? addStartedAt || null : null,
+            finished_reading_at: addReadingStatus === 'read' ? addFinishedAt || null : null,
+            owned_by_user:       addOwnedByUser,
+            borrowed_from:       !addOwnedByUser ? addBorrowedFrom || null : null,
+            location:            addLocation || null,
         }),
         onSuccess: () => { setDoneMessage('Added to your library!'); setStep('done') },
         onError:   () => setDetailsError('Failed to add copy. Please try again.'),
@@ -424,19 +447,33 @@ export default function AddBookPage() {
 
     // ── Submit new book ──────────────────────────────────────────────────────────
 
+    // Shared helper — copy options for the personal copy (ignored when catalogueOnly)
+    function copyOpts() {
+        if (catalogueOnly) return {}
+        return {
+            reading_status:      addReadingStatus,
+            current_page:        addReadingStatus === 'reading' && addCurrentPage ? parseInt(addCurrentPage) : null,
+            started_reading_at:  (addReadingStatus === 'reading' || addReadingStatus === 'read') ? addStartedAt || null : null,
+            finished_reading_at: addReadingStatus === 'read' ? addFinishedAt || null : null,
+            owned_by_user:       addOwnedByUser,
+            borrowed_from:       !addOwnedByUser ? addBorrowedFrom || null : null,
+            location:            addLocation || null,
+        }
+    }
+
     const submitMutation = useMutation({
         mutationFn: () => {
             if (!lookupResult) throw new Error('No book data')
             const dbFormat = mode === 'audiobook' ? 'audiobook' : format
             return submitBookApi({
-                title:       lookupResult.title,
-                authors:     lookupResult.authors ?? [],
-                description: lookupResult.description,
-                cover_url:   lookupResult.cover_url,
-                genres:      lookupResult.categories ?? [],
+                title:   lookupResult.title,
+                authors: lookupResult.authors ?? [],
+                genres:  lookupResult.categories ?? [],
                 catalogue_only: catalogueOnly,
                 edition: {
                     format:           dbFormat,
+                    description:      lookupResult.description,
+                    cover_url:        lookupResult.cover_url,
                     isbn:             getIsbn(lookupResult),
                     language,
                     publisher:        lookupResult.publisher,
@@ -446,6 +483,7 @@ export default function AddBookPage() {
                     file_format:      mode === 'book' && format === 'ebook' ? manualFileFormat || undefined : undefined,
                 },
                 condition: (mode === 'book' && !catalogueOnly && format !== 'ebook') ? condition : undefined,
+                ...copyOpts(),
             })
         },
         onSuccess: () => {
@@ -460,14 +498,14 @@ export default function AddBookPage() {
     const submitManualMutation = useMutation({
         mutationFn: () => {
             return submitBookApi({
-                title:       manualTitle.trim(),
-                authors:     manualAuthors,
-                description: manualDesc || undefined,
-                cover_url:   manualCoverUrl || undefined,
-                genres:      manualGenres,
+                title:   manualTitle.trim(),
+                authors: manualAuthors,
+                genres:  manualGenres,
                 catalogue_only: catalogueOnly,
                 edition: {
                     format:           mode === 'audiobook' ? 'audiobook' : format,
+                    description:      manualDesc || undefined,
+                    cover_url:        manualCoverUrl || undefined,
                     isbn:             manualIsbn || undefined,
                     asin:             manualAsin || undefined,
                     language,
@@ -482,6 +520,7 @@ export default function AddBookPage() {
                     translators:      manualTranslators.length > 0 ? manualTranslators : undefined,
                 },
                 condition: (mode === 'book' && !catalogueOnly && format !== 'ebook') ? condition : undefined,
+                ...copyOpts(),
             })
         },
         onSuccess: () => {
@@ -525,6 +564,8 @@ export default function AddBookPage() {
         setManualAsin(''); setManualPublisher(''); setManualEditionLabel(''); setManualPublishedAt('')
         setManualPages(''); setManualFileFormat(''); setManualAudioFormat('')
         setManualDesc(''); setManualCoverUrl(''); setManualError('')
+        setAddReadingStatus('want_to_read'); setAddCurrentPage(''); setAddStartedAt(''); setAddFinishedAt('')
+        setAddOwnedByUser(true); setAddBorrowedFrom(''); setAddLocation('')
         setFilters({})
         setShowFilters(false)
         setSearchResults([])
@@ -1281,6 +1322,36 @@ export default function AddBookPage() {
                             </select>
                         </div>
 
+                        {/* Reading status + ownership — only when not catalogue-only */}
+                        {!catalogueOnly && (
+                            <>
+                                <div>
+                                    <FieldLabel label="Reading status" />
+                                    <ToggleGroup value={addReadingStatus} onChange={v => setAddReadingStatus(v as typeof addReadingStatus)} options={[{ value: 'want_to_read', label: 'Want to read' }, { value: 'reading', label: 'Reading' }, { value: 'read', label: 'Read' }]} />
+                                </div>
+                                {addReadingStatus === 'reading' && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        <div><FieldLabel label="Current page" hint="Optional" /><TextInput value={addCurrentPage} onChange={setAddCurrentPage} placeholder="e.g. 142" type="number" /></div>
+                                        <div><FieldLabel label="Started reading" hint="Optional" /><TextInput value={addStartedAt} onChange={setAddStartedAt} placeholder="YYYY-MM-DD" type="date" /></div>
+                                    </div>
+                                )}
+                                {addReadingStatus === 'read' && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        <div><FieldLabel label="Started reading" hint="Optional" /><TextInput value={addStartedAt} onChange={setAddStartedAt} placeholder="YYYY-MM-DD" type="date" /></div>
+                                        <div><FieldLabel label="Finished reading" hint="Optional" /><TextInput value={addFinishedAt} onChange={setAddFinishedAt} placeholder="YYYY-MM-DD" type="date" /></div>
+                                    </div>
+                                )}
+                                <div>
+                                    <FieldLabel label="Ownership" />
+                                    <ToggleGroup value={addOwnedByUser ? 'owned' : 'borrowed'} onChange={v => setAddOwnedByUser(v === 'owned')} options={[{ value: 'owned', label: '📦 I own it' }, { value: 'borrowed', label: '🤝 Borrowed' }]} />
+                                </div>
+                                {!addOwnedByUser && (
+                                    <div><FieldLabel label="Borrowed from" hint="Optional — username or ID of the owner" /><TextInput value={addBorrowedFrom} onChange={setAddBorrowedFrom} placeholder="e.g. friend's name or user ID" /></div>
+                                )}
+                                <div><FieldLabel label="Location" hint="Optional — e.g. living room shelf, box, on loan" /><TextInput value={addLocation} onChange={setAddLocation} placeholder="e.g. Living room shelf" /></div>
+                            </>
+                        )}
+
                         {manualError && <ErrorBox message={manualError} />}
 
                         <div style={{ display: 'flex', gap: '10px' }}>
@@ -1418,6 +1489,36 @@ export default function AddBookPage() {
                                     ))}
                                 </select>
                             </div>
+
+                            {/* Reading status + ownership — only when not catalogue-only */}
+                            {!catalogueOnly && (
+                                <>
+                                    <div>
+                                        <FieldLabel label="Reading status" />
+                                        <ToggleGroup value={addReadingStatus} onChange={v => setAddReadingStatus(v as typeof addReadingStatus)} options={[{ value: 'want_to_read', label: 'Want to read' }, { value: 'reading', label: 'Reading' }, { value: 'read', label: 'Read' }]} />
+                                    </div>
+                                    {addReadingStatus === 'reading' && (
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                            <div><FieldLabel label="Current page" hint="Optional" /><TextInput value={addCurrentPage} onChange={setAddCurrentPage} placeholder="e.g. 142" type="number" /></div>
+                                            <div><FieldLabel label="Started reading" hint="Optional" /><TextInput value={addStartedAt} onChange={setAddStartedAt} placeholder="YYYY-MM-DD" type="date" /></div>
+                                        </div>
+                                    )}
+                                    {addReadingStatus === 'read' && (
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                            <div><FieldLabel label="Started reading" hint="Optional" /><TextInput value={addStartedAt} onChange={setAddStartedAt} placeholder="YYYY-MM-DD" type="date" /></div>
+                                            <div><FieldLabel label="Finished reading" hint="Optional" /><TextInput value={addFinishedAt} onChange={setAddFinishedAt} placeholder="YYYY-MM-DD" type="date" /></div>
+                                        </div>
+                                    )}
+                                    <div>
+                                        <FieldLabel label="Ownership" />
+                                        <ToggleGroup value={addOwnedByUser ? 'owned' : 'borrowed'} onChange={v => setAddOwnedByUser(v === 'owned')} options={[{ value: 'owned', label: '📦 I own it' }, { value: 'borrowed', label: '🤝 Borrowed' }]} />
+                                    </div>
+                                    {!addOwnedByUser && (
+                                        <div><FieldLabel label="Borrowed from" hint="Optional — username or ID of the owner" /><TextInput value={addBorrowedFrom} onChange={setAddBorrowedFrom} placeholder="e.g. friend's name or user ID" /></div>
+                                    )}
+                                    <div><FieldLabel label="Location" hint="Optional — e.g. living room shelf, box, on loan" /><TextInput value={addLocation} onChange={setAddLocation} placeholder="e.g. Living room shelf" /></div>
+                                </>
+                            )}
 
                             {/* Info box */}
                             <div style={{

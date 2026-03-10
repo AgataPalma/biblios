@@ -78,7 +78,7 @@ export default function BooksPage() {
             b.authors.some(a => a.name.toLowerCase().includes(search.toLowerCase()))
         )
         if (genre) list = list.filter(b => (b.genres ?? []).some(g => g.name === genre))
-        if (noCoverOnly) list = list.filter(b => !((b as any).cover_image_url ?? b.cover_url))
+        if (noCoverOnly) list = list.filter(b => !(b.editions?.[0]?.cover_url))
         switch (sort) {
             case 'title_asc':  list = [...list].sort((a, b) => a.title.localeCompare(b.title)); break
             case 'title_desc': list = [...list].sort((a, b) => b.title.localeCompare(a.title)); break
@@ -466,7 +466,7 @@ function BookCard({
     onAddToLibrary: () => void
 }) {
     const color    = pickColor(book.title)
-    const coverSrc = (book as any).cover_image_url ?? book.cover_url
+    const coverSrc = book.editions?.[0]?.cover_url
 
     return (
         <div
@@ -605,7 +605,7 @@ function BookListRow({
                     height: '56px',
                     borderRadius: '4px',
                     flexShrink: 0,
-                    background: ((book as any).cover_image_url ?? book.cover_url)
+                    background: (book.editions?.[0]?.cover_url)
                         ? undefined
                         : `linear-gradient(135deg, ${color}dd, ${color}88)`,
                     display: 'flex',
@@ -617,8 +617,8 @@ function BookListRow({
                     overflow: 'hidden',
                 }}
             >
-                {((book as any).cover_image_url ?? book.cover_url)
-                    ? <img src={(book as any).cover_image_url ?? book.cover_url!} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                {(book.editions?.[0]?.cover_url)
+                    ? <img src={book.editions?.[0]?.cover_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     : '📖'
                 }
             </div>

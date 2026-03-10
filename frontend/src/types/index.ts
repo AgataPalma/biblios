@@ -27,25 +27,9 @@ export interface Genre {
     created_at: string
 }
 
-export interface Edition {
-    id: string
-    book_id: string
-    format: string
-    isbn?: string
-    language?: string
-    publisher?: string
-    published_at?: string
-    page_count?: number
-    status: string
-    created_at: string
-    updated_at: string
-}
-
 export interface Book {
     id: string
     title: string
-    description?: string
-    cover_url?: string
     status: string
     authors: Author[]
     genres: Genre[]
@@ -112,11 +96,18 @@ export interface LookupResult {
 export interface UserBook {
     copy_id: string
     reading_status: 'want_to_read' | 'reading' | 'read'
+    current_page?: number
+    started_reading_at?: string
+    finished_reading_at?: string
+    owned_by_user: boolean
+    borrowed_from?: string   // user ID of the real owner if borrowed
+    location?: string
     condition?: string
     added_at: string
     edition_id: string
     format: string
     language?: string
+    cover_url?: string       // from book_editions
     book: Book
 }
 
@@ -134,11 +125,12 @@ export interface Submission {
     updated_at: string
 }
 
-// ── Replace the existing Edition interface with this ────────────────────────
 export interface Edition {
     id: string
     book_id: string
     format: string            // hardcover | paperback | ebook | audiobook
+    description?: string
+    cover_url?: string
     isbn?: string
     asin?: string
     language?: string

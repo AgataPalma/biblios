@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -11,19 +12,23 @@ import (
 )
 
 type bookRepository interface {
-	UpdateBook(ctx context.Context, id string, title, description, coverURL *string) error
+	UpdateBook(ctx context.Context, id string, title *string) error
+	UpdateEditionDetails(ctx context.Context, editionID string, e Edition) error
 	FindUserBooksWithCopies(ctx context.Context, userID string, page, limit int) ([]UserBook, int, error)
-	UpdateReadingStatus(ctx context.Context, copyID, userID, status string) error
+	UpdateReadingStatus(ctx context.Context, copyID, userID string, input UpdateCopyInput) error
 	RemoveCopy(ctx context.Context, copyID, userID string) error
 	ListApprovedBooks(ctx context.Context, page, limit int, sort string) ([]Book, int, error)
 	FindBookWithDetails(ctx context.Context, id string) (*Book, error)
 	FindUserBooks(ctx context.Context, userID string, page, limit int) ([]Book, int, error)
 	FindBooksWithoutCovers(ctx context.Context) ([]BookWithDetails, error)
-	UpdateCoverURL(ctx context.Context, bookID, coverURL string) error
+	UpdateEditionCoverURL(ctx context.Context, editionID, coverURL string) error
 	FindEditionByISBN(ctx context.Context, isbn string) (*Edition, error)
 	FindBookByID(ctx context.Context, id string) (*Book, error)
+	FindBookByTitleAndAuthors(ctx context.Context, title string, authorNames []string) (*Book, error)
 	FindSubmissionByID(ctx context.Context, id string) (*Submission, error)
 	DeleteBook(ctx context.Context, id string) error
+	ForceDeleteBook(ctx context.Context, id string) error
+	DeleteEdition(ctx context.Context, editionID string) error
 	ReplaceBookAuthors(ctx context.Context, bookID string, authorNames []string, autoApprove bool) error
 	ReplaceBookGenres(ctx context.Context, bookID string, genreNames []string, autoApprove bool) error
 	ReplaceEditionTranslators(ctx context.Context, editionID string, names []string) error
@@ -42,8 +47,6 @@ func NewService(repo *Repository, db *pgxpool.Pool) *Service {
 
 type SubmitBookInput struct {
 	Title         string
-	Description   *string
-	CoverURL      *string
 	Authors       []string
 	Genres        []string
 	Edition       EditionInput
@@ -51,22 +54,25 @@ type SubmitBookInput struct {
 	UserID        string
 	UserRole      apictx.Role
 	CatalogueOnly bool // when true, book is added to catalogue only — no personal copy created
+	CopyOptions        // initial reading state for the personal copy
 }
 
 type EditionInput struct {
-	Format          string
-	ISBN            *string
-	ASIN            *string
-	Language        string
-	Publisher       *string
-	Edition         *string
-	PublishedAt     *string
-	PageCount       *int
-	FileFormat      *string
-	DurationMinutes *int
-	AudioFormat     *string
-	Narrator        *string  // single name — backend does FindOrCreate + link
-	Translators     []string // multiple names — each gets FindOrCreate + link
+	Format          string   `json:"format"`
+	Description     *string  `json:"description"`
+	CoverURL        *string  `json:"cover_url"`
+	ISBN            *string  `json:"isbn"`
+	ASIN            *string  `json:"asin"`
+	Language        string   `json:"language"`
+	Publisher       *string  `json:"publisher"`
+	Edition         *string  `json:"edition"`
+	PublishedAt     *string  `json:"published_at"`
+	PageCount       *int     `json:"page_count"`
+	FileFormat      *string  `json:"file_format"`
+	DurationMinutes *int     `json:"duration_minutes"`
+	AudioFormat     *string  `json:"audio_format"`
+	Narrator        *string  `json:"narrator"`    // single name — backend does FindOrCreate + link
+	Translators     []string `json:"translators"` // multiple names — each gets FindOrCreate + link
 }
 
 type SubmitBookResult struct {
@@ -76,10 +82,33 @@ type SubmitBookResult struct {
 	Copy       *Copy
 }
 
+// CopyOptions holds the initial state of a newly created copy.
+// Used by both AddCopyOfExistingEdition and SubmitBook.
+type CopyOptions struct {
+	ReadingStatus     string
+	CurrentPage       *int
+	StartedReadingAt  *string // RFC3339 or empty string to skip
+	FinishedReadingAt *string // RFC3339 or empty string to skip
+	OwnedByUser       *bool   // nil = default true
+	BorrowedFrom      *string // user ID of real owner if borrowed
+	Location          *string
+}
+
 type AddCopyInput struct {
 	EditionID string
 	Condition *string
 	UserID    string
+	CopyOptions
+}
+
+type UpdateCopyInput struct {
+	Status            string
+	CurrentPage       *int
+	StartedReadingAt  *string // RFC3339 or empty
+	FinishedReadingAt *string // RFC3339 or empty
+	OwnedByUser       *bool
+	BorrowedFrom      *string
+	Location          *string
 }
 
 type AddCopyResult struct {
@@ -97,14 +126,12 @@ type ListBooksResult struct {
 }
 
 type UpdateBookInput struct {
-	ID          string
-	Title       *string
-	Description *string
-	CoverURL    *string
-	Authors     []string      // if non-nil, replaces all existing authors
-	Genres      []string      // if non-nil, replaces all existing genres
-	EditionID   string        // optional — if set, edition fields are also updated
-	Edition     *EditionInput // optional — edition fields to update
+	ID        string
+	Title     *string
+	Authors   []string      // if non-nil, replaces all existing authors
+	Genres    []string      // if non-nil, replaces all existing genres
+	EditionID string        // optional — if set, edition fields are also updated
+	Edition   *EditionInput // optional — edition fields to update
 }
 
 func (s *Service) AddCopyOfExistingEdition(ctx context.Context, input AddCopyInput) (AddCopyResult, error) {
@@ -141,7 +168,7 @@ func (s *Service) AddCopyOfExistingEdition(ctx context.Context, input AddCopyInp
 
 	// Create copy
 	var copy Copy
-	copy, err = repo.InsertCopy(ctx, edition.ID, input.UserID, input.Condition)
+	copy, err = repo.InsertCopy(ctx, edition.ID, input.UserID, input.Condition, input.CopyOptions)
 	if err != nil {
 		return AddCopyResult{}, err
 	}
@@ -185,45 +212,79 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 	// All operations go through the transaction
 	var repo *txRepository = s.repo.withDB(tx)
 
-	// Create book
+	// Check for existing book with same title + same authors before creating a new one
 	var book Book
-	book, err = repo.InsertBook(ctx, input.Title, input.Description, input.CoverURL, autoApprove)
-	if err != nil {
-		return SubmitBookResult{}, err
-	}
+	if existingBook, lookupErr := s.repo.FindBookByTitleAndAuthors(ctx, input.Title, input.Authors); lookupErr == nil && existingBook != nil {
+		book = *existingBook
 
-	// Create and link authors
-	for _, authorName := range input.Authors {
-		var author Author
-		author, err = repo.FindOrCreateAuthor(ctx, authorName, autoApprove)
-		if err != nil {
-			return SubmitBookResult{}, err
+		// Load existing authors and genres back onto the book struct for the response
+		existingWithDetails, detailErr := s.repo.FindBookWithDetails(ctx, book.ID)
+		if detailErr == nil && existingWithDetails != nil {
+			book.Authors = existingWithDetails.Authors
+			book.Genres = existingWithDetails.Genres
 		}
-		err = repo.LinkBookAuthor(ctx, book.ID, author.ID)
-		if err != nil {
-			return SubmitBookResult{}, err
-		}
-		book.Authors = append(book.Authors, author)
-	}
 
-	// Create and link genres
-	for _, genreName := range input.Genres {
-		var genre Genre
-		genre, err = repo.FindOrCreateGenre(ctx, genreName, autoApprove)
+		// Add any genres from the new submission that the book doesn't already have
+		existingGenreNames := make(map[string]bool)
+		for _, g := range book.Genres {
+			existingGenreNames[strings.ToLower(g.Name)] = true
+		}
+		for _, genreName := range input.Genres {
+			if genreName == "" || existingGenreNames[strings.ToLower(genreName)] {
+				continue
+			}
+			var genre Genre
+			genre, err = repo.FindOrCreateGenre(ctx, genreName, autoApprove)
+			if err != nil {
+				return SubmitBookResult{}, err
+			}
+			if linkErr := repo.LinkBookGenre(ctx, book.ID, genre.ID); linkErr != nil {
+				return SubmitBookResult{}, linkErr
+			}
+			book.Genres = append(book.Genres, genre)
+		}
+	} else {
+		// Create book
+		book, err = repo.InsertBook(ctx, input.Title, autoApprove)
 		if err != nil {
 			return SubmitBookResult{}, err
 		}
-		err = repo.LinkBookGenre(ctx, book.ID, genre.ID)
-		if err != nil {
-			return SubmitBookResult{}, err
+
+		// Create and link authors
+		for _, authorName := range input.Authors {
+			var author Author
+			author, err = repo.FindOrCreateAuthor(ctx, authorName, autoApprove)
+			if err != nil {
+				return SubmitBookResult{}, err
+			}
+			err = repo.LinkBookAuthor(ctx, book.ID, author.ID)
+			if err != nil {
+				return SubmitBookResult{}, err
+			}
+			book.Authors = append(book.Authors, author)
 		}
-		book.Genres = append(book.Genres, genre)
+
+		// Create and link genres
+		for _, genreName := range input.Genres {
+			var genre Genre
+			genre, err = repo.FindOrCreateGenre(ctx, genreName, autoApprove)
+			if err != nil {
+				return SubmitBookResult{}, err
+			}
+			err = repo.LinkBookGenre(ctx, book.ID, genre.ID)
+			if err != nil {
+				return SubmitBookResult{}, err
+			}
+			book.Genres = append(book.Genres, genre)
+		}
 	}
 
 	// Create edition
 	var edition Edition = Edition{
 		BookID:          book.ID,
 		Format:          input.Edition.Format,
+		Description:     input.Edition.Description,
+		CoverURL:        input.Edition.CoverURL,
 		ISBN:            input.Edition.ISBN,
 		ASIN:            input.Edition.ASIN,
 		Language:        input.Edition.Language,
@@ -233,6 +294,11 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 		FileFormat:      input.Edition.FileFormat,
 		DurationMinutes: input.Edition.DurationMinutes,
 		AudioFormat:     input.Edition.AudioFormat,
+	}
+	if input.Edition.PublishedAt != nil && *input.Edition.PublishedAt != "" {
+		if t, parseErr := parsePublishedAt(*input.Edition.PublishedAt); parseErr == nil {
+			edition.PublishedAt = &t
+		}
 	}
 	edition, err = repo.InsertEdition(ctx, edition, autoApprove)
 	if err != nil {
@@ -279,7 +345,7 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 	// If auto approve, create copy — unless this is a catalogue-only submission
 	if autoApprove && !input.CatalogueOnly {
 		var copy Copy
-		copy, err = repo.InsertCopy(ctx, edition.ID, input.UserID, input.Condition)
+		copy, err = repo.InsertCopy(ctx, edition.ID, input.UserID, input.Condition, input.CopyOptions)
 		if err != nil {
 			return SubmitBookResult{}, err
 		}
@@ -310,6 +376,11 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 
 	if err = tx.Commit(ctx); err != nil {
 		return SubmitBookResult{}, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Reload the book after commit to ensure authors/genres are populated in the response
+	if reloaded, reloadErr := s.repo.FindBookWithDetails(ctx, book.ID); reloadErr == nil && reloaded != nil {
+		result.Book = *reloaded
 	}
 
 	return result, nil
@@ -345,7 +416,7 @@ func (s *Service) UpdateBook(ctx context.Context, input UpdateBookInput) error {
 	if input.Title != nil && *input.Title == "" {
 		return fmt.Errorf("title is required")
 	}
-	if err := s.repo.UpdateBook(ctx, input.ID, input.Title, input.Description, input.CoverURL); err != nil {
+	if err := s.repo.UpdateBook(ctx, input.ID, input.Title); err != nil {
 		return err
 	}
 	if len(input.Authors) > 0 {
@@ -361,6 +432,9 @@ func (s *Service) UpdateBook(ctx context.Context, input UpdateBookInput) error {
 	if input.EditionID != "" && input.Edition != nil {
 		edition := Edition{
 			ID:              input.EditionID,
+			Format:          input.Edition.Format,
+			Description:     input.Edition.Description,
+			CoverURL:        input.Edition.CoverURL,
 			Language:        input.Edition.Language,
 			ISBN:            input.Edition.ISBN,
 			ASIN:            input.Edition.ASIN,
@@ -393,6 +467,14 @@ func (s *Service) DeleteBook(ctx context.Context, id string) error {
 	return s.repo.DeleteBook(ctx, id)
 }
 
+func (s *Service) ForceDeleteBook(ctx context.Context, id string) error {
+	return s.repo.ForceDeleteBook(ctx, id)
+}
+
+func (s *Service) DeleteEdition(ctx context.Context, editionID string) error {
+	return s.repo.DeleteEdition(ctx, editionID)
+}
+
 func (s *Service) GetUserBooks(ctx context.Context, userID string, page int, limit int) (ListBooksResult, error) {
 	var bookList []Book
 	var total int
@@ -419,14 +501,13 @@ func (s *Service) GetBooksWithoutCovers(ctx context.Context) ([]BookWithDetails,
 	return s.repo.FindBooksWithoutCovers(ctx)
 }
 
-func (s *Service) UpdateCoverURL(ctx context.Context, bookID, coverURL string) error {
-	return s.repo.UpdateCoverURL(ctx, bookID, coverURL)
+func (s *Service) UpdateEditionCoverURL(ctx context.Context, editionID, coverURL string) error {
+	return s.repo.UpdateEditionCoverURL(ctx, editionID, coverURL)
 }
 
-func (s *Service) UpdateReadingStatus(ctx context.Context, copyID, userID, status string) error {
-	return s.repo.UpdateReadingStatus(ctx, copyID, userID, status)
+func (s *Service) UpdateReadingStatus(ctx context.Context, copyID, userID string, input UpdateCopyInput) error {
+	return s.repo.UpdateReadingStatus(ctx, copyID, userID, input)
 }
-
 func (s *Service) RemoveCopy(ctx context.Context, copyID, userID string) error {
 	return s.repo.RemoveCopy(ctx, copyID, userID)
 }

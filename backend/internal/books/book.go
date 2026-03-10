@@ -1,6 +1,7 @@
 package books
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
@@ -41,23 +42,23 @@ type Genre struct {
 }
 
 type Book struct {
-	ID          string     `json:"id"`
-	Title       string     `json:"title"`
-	Description *string    `json:"description,omitempty"`
-	CoverURL    *string    `json:"cover_url,omitempty"`
-	Status      string     `json:"status"`
-	Authors     []Author   `json:"authors"`
-	Genres      []Genre    `json:"genres"`
-	Editions    []Edition  `json:"editions,omitempty"`
-	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID        string     `json:"id"`
+	Title     string     `json:"title"`
+	Status    string     `json:"status"`
+	Authors   []Author   `json:"authors"`
+	Genres    []Genre    `json:"genres"`
+	Editions  []Edition  `json:"editions,omitempty"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 type Edition struct {
 	ID              string       `json:"id"`
 	BookID          string       `json:"book_id"`
 	Format          string       `json:"format"`
+	Description     *string      `json:"description,omitempty"`
+	CoverURL        *string      `json:"cover_url,omitempty"`
 	ISBN            *string      `json:"isbn,omitempty"`
 	ASIN            *string      `json:"asin,omitempty"`
 	Language        string       `json:"language"`
@@ -77,14 +78,20 @@ type Edition struct {
 }
 
 type Copy struct {
-	ID            string     `json:"id"`
-	EditionID     string     `json:"edition_id"`
-	OwnerID       string     `json:"owner_id"`
-	Condition     *string    `json:"condition"`
-	ReadingStatus string     `json:"reading_status"`
-	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID                string     `json:"id"`
+	EditionID         string     `json:"edition_id"`
+	OwnerID           string     `json:"owner_id"`
+	Condition         *string    `json:"condition,omitempty"`
+	ReadingStatus     string     `json:"reading_status"`
+	CurrentPage       *int       `json:"current_page,omitempty"`
+	StartedReadingAt  *time.Time `json:"started_reading_at,omitempty"`
+	FinishedReadingAt *time.Time `json:"finished_reading_at,omitempty"`
+	OwnedByUser       bool       `json:"owned_by_user"`
+	BorrowedFrom      *string    `json:"borrowed_from,omitempty"` // user ID of real owner if borrowed
+	Location          *string    `json:"location,omitempty"`
+	DeletedAt         *time.Time `json:"deleted_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 type Submission struct {
@@ -124,12 +131,33 @@ type LookupResult struct {
 }
 
 type UserBook struct {
-	CopyID        string    `json:"copy_id"`
-	ReadingStatus string    `json:"reading_status"`
-	Condition     *string   `json:"condition"`
-	AddedAt       time.Time `json:"added_at"`
-	EditionID     string    `json:"edition_id"`
-	Format        string    `json:"format"`
-	Language      *string   `json:"language"`
-	Book          Book      `json:"book"`
+	CopyID            string     `json:"copy_id"`
+	ReadingStatus     string     `json:"reading_status"`
+	CurrentPage       *int       `json:"current_page,omitempty"`
+	StartedReadingAt  *time.Time `json:"started_reading_at,omitempty"`
+	FinishedReadingAt *time.Time `json:"finished_reading_at,omitempty"`
+	OwnedByUser       bool       `json:"owned_by_user"`
+	BorrowedFrom      *string    `json:"borrowed_from,omitempty"`
+	Location          *string    `json:"location,omitempty"`
+	Condition         *string    `json:"condition,omitempty"`
+	AddedAt           time.Time  `json:"added_at"`
+	EditionID         string     `json:"edition_id"`
+	Format            string     `json:"format"`
+	Language          *string    `json:"language,omitempty"`
+	CoverURL          *string    `json:"cover_url,omitempty"` // from book_editions
+	Book              Book       `json:"book"`
+}
+
+// parsePublishedAt parses a user-supplied year ("2001") or full date ("2001-09-01")
+// into a time.Time. Returns an error if the string is not a recognised format.
+func parsePublishedAt(s string) (time.Time, error) {
+	// Try full date first
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, nil
+	}
+	// Try year only
+	if t, err := time.Parse("2006", s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("unrecognised date format: %q", s)
 }

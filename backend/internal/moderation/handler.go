@@ -119,10 +119,8 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 }
 
 type editAndApproveRequest struct {
-	Title       string        `json:"title"`
-	Description *string       `json:"description"`
-	CoverURL    *string       `json:"cover_url"`
-	Edition     books.Edition `json:"edition"`
+	Title   string        `json:"title"`
+	Edition books.Edition `json:"edition"`
 }
 
 func (h *Handler) EditAndApprove(w http.ResponseWriter, r *http.Request) {
@@ -152,8 +150,6 @@ func (h *Handler) EditAndApprove(w http.ResponseWriter, r *http.Request) {
 		SubmissionID: id,
 		ReviewerID:   claims.UserID,
 		Title:        req.Title,
-		Description:  req.Description,
-		CoverURL:     req.CoverURL,
 		Edition:      req.Edition,
 	})
 	if err != nil {

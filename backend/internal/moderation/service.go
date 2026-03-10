@@ -121,8 +121,6 @@ type EditAndApproveInput struct {
 	SubmissionID string
 	ReviewerID   string
 	Title        string
-	Description  *string
-	CoverURL     *string
 	Edition      books.Edition
 }
 
@@ -143,8 +141,8 @@ func (s *Service) EditAndApprove(ctx context.Context, input EditAndApproveInput)
 	var before []byte
 	before, _ = json.Marshal(submission)
 
-	// Apply edits
-	err = s.repo.UpdateBook(ctx, *submission.BookID, &input.Title, input.Description, input.CoverURL)
+	// Apply edits to book title
+	err = s.repo.UpdateBook(ctx, *submission.BookID, &input.Title)
 	if err != nil {
 		return err
 	}

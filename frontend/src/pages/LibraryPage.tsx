@@ -70,16 +70,16 @@ export default function LibraryPage() {
     })
 
     const statusMutation = useMutation({
-        mutationFn: ({ copyId, status }: { copyId: string; status: string }) =>
-            updateReadingStatus(copyId, status),
+        mutationFn: ({ copyId, status }: { copyId: string; status: 'want_to_read' | 'reading' | 'read' }) =>
+            updateReadingStatus(copyId, { status }),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ['my-library'] }),
     })
 
     const removeMutation = useMutation({
         mutationFn: (copyId: string) => removeCopy(copyId),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['my-library'] })
-            queryClient.invalidateQueries({ queryKey: ['my-books'] })
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: ['my-library'] })
+            await queryClient.invalidateQueries({ queryKey: ['my-books'] })
             setRemoveTarget(null)
         },
     })
@@ -171,7 +171,7 @@ export default function LibraryPage() {
             ) : viewMode === 'catalogue' ? (
                 <CatalogueView
                     books={filtered}
-                    onNavigate={id => navigate(`/books/${id}`)}
+                    onNavigate={(bookId, copyId) => navigate(`/books/${bookId}?copy_id=${copyId}`)}
                     onStatusChange={(copyId, status) => statusMutation.mutate({ copyId, status })}
                     onRemove={b => setRemoveTarget(b)}
                 />
@@ -179,7 +179,7 @@ export default function LibraryPage() {
                 <CardView
                     books={filtered}
                     onStatusChange={(copyId, status) => statusMutation.mutate({ copyId, status })}
-                    onNavigate={id => navigate(`/books/${id}`)}
+                    onNavigate={(bookId, copyId) => navigate(`/books/${bookId}?copy_id=${copyId}`)}
                     onRemove={b => setRemoveTarget(b)}
                     isUpdating={statusMutation.isPending}
                 />
@@ -187,13 +187,13 @@ export default function LibraryPage() {
                 <BookcaseView
                     books={filtered}
                     themeId={themeId}
-                    onNavigate={id => navigate(`/books/${id}`)}
+                    onNavigate={(bookId, copyId) => navigate(`/books/${bookId}?copy_id=${copyId}`)}
                 />
             ) : (
                 <ListView
                     books={filtered}
                     onStatusChange={(copyId, status) => statusMutation.mutate({ copyId, status })}
-                    onNavigate={id => navigate(`/books/${id}`)}
+                    onNavigate={(bookId, copyId) => navigate(`/books/${bookId}?copy_id=${copyId}`)}
                     onRemove={b => setRemoveTarget(b)}
                     isUpdating={statusMutation.isPending}
                 />
@@ -234,8 +234,8 @@ function CatalogueView({
                            books, onNavigate, onStatusChange, onRemove,
                        }: {
     books: UserBook[]
-    onNavigate: (bookId: string) => void
-    onStatusChange: (copyId: string, status: string) => void
+    onNavigate: (bookId: string, copyId: string) => void
+    onStatusChange: (copyId: string, status: 'reading' | 'read' | 'want_to_read') => void
     onRemove: (b: UserBook) => void
 }) {
     return (
@@ -243,7 +243,7 @@ function CatalogueView({
             {books.map(ub => {
                 const { book } = ub
                 const color = pickColor(book.title)
-                const coverSrc = book.cover_image_url ?? (book as any).cover_url
+                const coverSrc = ub.cover_url
 
                 return (
                     <div
@@ -254,7 +254,7 @@ function CatalogueView({
                     >
                         {/* Cover */}
                         <div
-                            onClick={() => onNavigate(book.id)}
+                            onClick={() => onNavigate(book.id, ub.copy_id)}
                             style={{ height: '160px', background: coverSrc ? `url(${coverSrc}) center/cover no-repeat` : `linear-gradient(135deg, ${color}dd, ${color}88)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, position: 'relative' }}
                         >
                             {!coverSrc && <span style={{ fontSize: '36px', opacity: 0.6 }}>📖</span>}
@@ -265,7 +265,7 @@ function CatalogueView({
                         </div>
                         {/* Info */}
                         <div style={{ padding: '10px', flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <p onClick={() => onNavigate(book.id)} style={{ margin: 0, fontSize: '12px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-body)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: '1.4', cursor: 'pointer' }}>
+                            <p onClick={() => onNavigate(book.id, ub.copy_id)} style={{ margin: 0, fontSize: '12px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-body)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: '1.4', cursor: 'pointer' }}>
                                 {book.title}
                             </p>
                             <p style={{ margin: 0, fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -308,8 +308,8 @@ function CardView({
                       books, onStatusChange, onNavigate, onRemove, isUpdating,
                   }: {
     books: UserBook[]
-    onStatusChange: (copyId: string, status: string) => void
-    onNavigate: (bookId: string) => void
+    onStatusChange: (copyId: string, status: 'reading' | 'read' | 'want_to_read') => void
+    onNavigate: (bookId: string, copyId: string) => void
     onRemove: (b: UserBook) => void
     isUpdating: boolean
 }) {
@@ -320,7 +320,7 @@ function CardView({
                     key={ub.copy_id}
                     userBook={ub}
                     onStatusChange={status => onStatusChange(ub.copy_id, status)}
-                    onNavigate={() => onNavigate(ub.book.id)}
+                    onNavigate={() => onNavigate(ub.book.id, ub.copy_id)}
                     onRemove={() => onRemove(ub)}
                     isUpdating={isUpdating}
                 />
@@ -338,7 +338,7 @@ function BookcaseView({
                       }: {
     books: UserBook[]
     themeId: string
-    onNavigate: (bookId: string) => void
+    onNavigate: (bookId: string, copyId: string) => void
 }) {
     const sc = getShelfColors(themeId)
     const SHELF_H      = 130
@@ -366,7 +366,7 @@ function BookcaseView({
                                 key={ub.copy_id}
                                 userBook={ub}
                                 shelfHeight={SHELF_H - SHELF_THICK - 4}
-                                onClick={() => onNavigate(ub.book.id)}
+                                onClick={() => onNavigate(ub.book.id, ub.copy_id)}
                             />
                         ))}
                         {shelfBooks.length < BOOKS_PER_SHELF && <div style={{ flex: 1 }} />}
@@ -451,8 +451,8 @@ function ListView({
                       books, onStatusChange, onNavigate, onRemove, isUpdating,
                   }: {
     books: UserBook[]
-    onStatusChange: (copyId: string, status: string) => void
-    onNavigate: (bookId: string) => void
+    onStatusChange: (copyId: string, status: 'reading' | 'read' | 'want_to_read') => void
+    onNavigate: (bookId: string, copyId: string) => void
     onRemove: (b: UserBook) => void
     isUpdating: boolean
 }) {
@@ -474,7 +474,7 @@ function ListView({
                     userBook={ub}
                     isLast={i === books.length - 1}
                     onStatusChange={status => onStatusChange(ub.copy_id, status)}
-                    onNavigate={() => onNavigate(ub.book.id)}
+                    onNavigate={() => onNavigate(ub.book.id, ub.copy_id)}
                     onRemove={() => onRemove(ub)}
                     isUpdating={isUpdating}
                 />
@@ -488,15 +488,14 @@ function ListRow({
                  }: {
     userBook: UserBook
     isLast: boolean
-    onStatusChange: (status: string) => void
+    onStatusChange: (status: 'reading' | 'read' | 'want_to_read') => void
     onNavigate: () => void
     onRemove: () => void
     isUpdating: boolean
 }) {
     const { book } = userBook
     const color    = pickColor(book.title)
-    // Support both new cover_image_url and legacy cover_url
-    const coverSrc = (book as any).cover_image_url ?? (book as any).cover_url
+    const coverSrc = userBook.cover_url
 
     return (
         <div
@@ -569,14 +568,14 @@ function LibraryBookCard({
                              userBook, onStatusChange, onNavigate, onRemove, isUpdating,
                          }: {
     userBook: UserBook
-    onStatusChange: (status: string) => void
+    onStatusChange: (status: 'reading' | 'read' | 'want_to_read') => void
     onNavigate: () => void
     onRemove: () => void
     isUpdating: boolean
 }) {
     const { book } = userBook
     const color    = pickColor(book.title)
-    const coverSrc = (book as any).cover_image_url ?? (book as any).cover_url
+    const coverSrc = userBook.cover_url
 
     return (
         <Card padding="sm" hover>

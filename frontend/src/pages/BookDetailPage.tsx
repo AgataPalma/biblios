@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getBook, addCopy, updateBook, uploadBookCover } from '../api/books'
+import { getBook, addCopy, updateBook, uploadEditionCover, updateReadingStatus, removeCopy, deleteBook, deleteEdition, type UpdateCopyPayload } from '../api/books'
 import { Badge, Card, Modal, Spinner } from '../components'
 import { useAuth } from '../context/AuthContext'
-import type { Book, Edition } from '../types'
+import type { Book, Edition, UserBook } from '../types'
 
 const PALETTE = ['#2563eb','#16a34a','#dc2626','#9333ea','#ea580c','#0891b2','#d97706','#4f46e5','#0d9488','#be185d']
 function pickColor(title: string): string {
@@ -70,6 +70,8 @@ const LANGUAGES = [
 
 export default function BookDetailPage() {
     const { id }      = useParams<{ id: string }>()
+    const [searchParams] = useSearchParams()
+    const copyIdParam = searchParams.get('copy_id')   // set when navigating from the library
     const navigate    = useNavigate()
     const queryClient = useQueryClient()
     const { user }    = useAuth()
@@ -79,6 +81,8 @@ export default function BookDetailPage() {
     const [selectedEditionId, setSelectedEditionId] = useState('')
     const [selectedCondition, setSelectedCondition] = useState('good')
     const [addError, setAddError]                   = useState('')
+
+    const [selectedEditionIdx, setSelectedEditionIdx] = useState(0)   // which edition is shown in detail/edit
 
     const [editing, setEditing]                     = useState(false)
     const [editTitle, setEditTitle]                 = useState('')
@@ -102,7 +106,71 @@ export default function BookDetailPage() {
     const [coverPreview, setCoverPreview]           = useState<string | undefined>()
     const fileInputRef = useRef<HTMLInputElement>(null)
 
+    // Copy management (reading progress + ownership) — only when arriving from library
+    const [copyEditing, setCopyEditing]             = useState(false)
+    const [copyStatus, setCopyStatus]               = useState<'want_to_read'|'reading'|'read'>('want_to_read')
+    const [copyPage, setCopyPage]                   = useState('')
+    const [copyStarted, setCopyStarted]             = useState('')
+    const [copyFinished, setCopyFinished]           = useState('')
+    const [copyOwnedByUser, setCopyOwnedByUser]     = useState(true)
+    const [copyBorrowedFrom, setCopyBorrowedFrom]   = useState('')
+    const [copyLocation, setCopyLocation]           = useState('')
+    const [copySaveError, setCopySaveError]         = useState('')
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+    const [deleteEditionId, setDeleteEditionId]     = useState<string | null>(null)
+
     const { data: book, isLoading, isError } = useQuery({ queryKey: ['book', id], queryFn: () => getBook(id!), enabled: !!id })
+
+    // Find the user's copy from cache (populated when arriving from library)
+    const libraryData = queryClient.getQueryData<{ books: UserBook[] }>(['my-library', 1])
+    const userBook = copyIdParam ? libraryData?.books?.find(b => b.copy_id === copyIdParam) : undefined
+
+    function startCopyEditing() {
+        if (!userBook) return
+        setCopyStatus(userBook.reading_status)
+        setCopyPage(userBook.current_page ? String(userBook.current_page) : '')
+        setCopyStarted(userBook.started_reading_at ? userBook.started_reading_at.slice(0, 10) : '')
+        setCopyFinished(userBook.finished_reading_at ? userBook.finished_reading_at.slice(0, 10) : '')
+        setCopyOwnedByUser(userBook.owned_by_user)
+        setCopyBorrowedFrom(userBook.borrowed_from ?? '')
+        setCopyLocation(userBook.location ?? '')
+        setCopySaveError(''); setCopyEditing(true)
+    }
+
+    const copySaveMutation = useMutation({
+        mutationFn: () => {
+            const payload: UpdateCopyPayload = {
+                status:             copyStatus,
+                current_page:       copyPage ? parseInt(copyPage) : null,
+                started_reading_at: copyStarted || null,
+                finished_reading_at: copyFinished || null,
+                owned_by_user:      copyOwnedByUser,
+                borrowed_from:      copyBorrowedFrom || null,
+                location:           copyLocation || null,
+            }
+            return updateReadingStatus(copyIdParam!, payload)
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['my-library'] })
+            setCopyEditing(false); setCopySaveError('')
+        },
+        onError: () => setCopySaveError('Failed to save changes. Please try again.'),
+    })
+
+    const removeCopyMutation = useMutation({
+        mutationFn: () => removeCopy(copyIdParam!),
+        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['my-library'] }); navigate('/library') },
+    })
+
+    const deleteBookMutation = useMutation({
+        mutationFn: (force: boolean) => deleteBook(id!, force),
+        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['books'] }); navigate('/books') },
+    })
+
+    const deleteEditionMutation = useMutation({
+        mutationFn: (editionId: string) => deleteEdition(id!, editionId),
+        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['book', id] }); setDeleteEditionId(null) },
+    })
 
     const addCopyMutation = useMutation({
         mutationFn: () => addCopy(selectedEditionId, { condition: selectedCondition }),
@@ -112,18 +180,18 @@ export default function BookDetailPage() {
 
     const saveMutation = useMutation({
         mutationFn: async () => {
+            const ed = book?.editions?.[selectedEditionIdx] ?? book?.editions?.[0]
             let newCoverUrl: string | undefined
-            if (coverFile && id) newCoverUrl = await uploadBookCover(id, coverFile)
-            const ed = book?.editions?.[0]
+            if (coverFile && ed?.id) newCoverUrl = await uploadEditionCover(ed.id, coverFile)
             return updateBook(id!, {
-                title:       editTitle.trim() || undefined,
-                description: editDesc.trim()  || undefined,
-                cover_url:   newCoverUrl,
-                authors:     editAuthors,
-                genres:      editGenres,
+                title:   editTitle.trim() || undefined,
+                authors: editAuthors,
+                genres:  editGenres,
                 edition: ed ? {
                     id:               ed.id,
                     format:           editFormat,
+                    description:      editDesc.trim()    || undefined,
+                    cover_url:        newCoverUrl,
                     language:         editLanguage,
                     isbn:             editIsbn            || undefined,
                     asin:             editAsin            || undefined,
@@ -140,6 +208,7 @@ export default function BookDetailPage() {
         },
         onSuccess: (updated: Book) => {
             queryClient.setQueryData(['book', id], updated)
+            queryClient.invalidateQueries({ queryKey: ['book', id] })
             queryClient.invalidateQueries({ queryKey: ['books'] })
             setEditing(false); setSaveError(''); setCoverFile(null); setCoverPreview(undefined)
         },
@@ -148,23 +217,23 @@ export default function BookDetailPage() {
 
     function startEditing() {
         if (!book) return
-        const ed = book.editions?.[0]
+        const ed = book.editions?.[selectedEditionIdx] ?? book.editions?.[0]
         setEditTitle(book.title)
-        setEditDesc(book.description ?? '')
+        setEditDesc(primaryEdition?.description ?? '')
         setEditAuthors(book.authors?.map(a => a.name) ?? [])
         setEditGenres(book.genres?.map(g => g.name) ?? [])
         setEditFormat(ed?.format ?? '')
         setEditLanguage(ed?.language ?? 'en')
         setEditIsbn(ed?.isbn ?? '')
-        setEditAsin((ed as any)?.asin ?? '')
+        setEditAsin(ed?.asin ?? '')
         setEditPublisher(ed?.publisher ?? '')
-        setEditEditionLabel((ed as any)?.edition ?? '')
+        setEditEditionLabel(ed?.edition ?? '')
         setEditPublishedAt(ed?.published_at ? String(ed.published_at).slice(0, 4) : '')
         setEditPageCount(ed?.page_count ? String(ed.page_count) : '')
-        setEditFileFormat((ed as any)?.file_format ?? '')
-        setEditDuration((ed as any)?.duration_minutes ? String((ed as any).duration_minutes) : '')
-        setEditAudioFormat((ed as any)?.audio_format ?? '')
-        setEditTranslators((ed as any)?.translators?.map((t: any) => t.name) ?? [])
+        setEditFileFormat(ed?.file_format ?? '')
+        setEditDuration(ed?.duration_minutes ? String(ed.duration_minutes) : '')
+        setEditAudioFormat(ed?.audio_format ?? '')
+        setEditTranslators(ed?.translators?.map((t: { name: string }) => t.name) ?? [])
         setCoverFile(null); setCoverPreview(undefined); setSaveError(''); setEditing(true)
     }
 
@@ -172,7 +241,7 @@ export default function BookDetailPage() {
 
     function openAddModal() {
         if (!book) return
-        setSelectedEditionId(book.editions?.[0]?.id ?? ''); setSelectedCondition('good'); setAddError(''); setAddOpen(true)
+        setSelectedEditionId(primaryEdition?.id ?? book.editions?.[0]?.id ?? ''); setSelectedCondition('good'); setAddError(''); setAddOpen(true)
     }
 
     function handleCoverFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -191,9 +260,9 @@ export default function BookDetailPage() {
     )
 
     const coverColor    = pickColor(book.title)
-    const storedCover   = (book as any).cover_image_url ?? book.cover_url
+    const primaryEdition = book.editions?.[selectedEditionIdx] ?? book.editions?.[0]
+    const storedCover   = primaryEdition?.cover_url
     const displayCover  = coverPreview ?? storedCover
-    const primaryEdition = book.editions?.[0]
     const isAudiobook   = editing ? editFormat === 'audiobook' : primaryEdition?.format === 'audiobook'
 
     return (
@@ -225,13 +294,12 @@ export default function BookDetailPage() {
                                     { label: 'Format',      value: primaryEdition.format },
                                     { label: 'Language',    value: primaryEdition.language },
                                     { label: 'Publisher',   value: primaryEdition.publisher },
-                                    { label: 'Published',   value: primaryEdition.published_at },
-                                    { label: 'Pages',       value: primaryEdition.page_count },
+                                    { label: 'Published',   value: primaryEdition.published_at ? new Date(primaryEdition.published_at).getFullYear() : undefined },                                    { label: 'Pages',       value: primaryEdition.page_count },
                                     { label: 'ISBN',        value: primaryEdition.isbn },
-                                    { label: 'ASIN',        value: (primaryEdition as any).asin },
-                                    { label: 'Edition',     value: (primaryEdition as any).edition },
-                                    { label: 'File format', value: (primaryEdition as any).file_format },
-                                    { label: 'Duration',    value: (primaryEdition as any).duration_minutes ? `${(primaryEdition as any).duration_minutes} min` : undefined },
+                                    { label: 'ASIN',        value: primaryEdition.asin },
+                                    { label: 'Edition',     value: primaryEdition.edition },
+                                    { label: 'File format', value: primaryEdition.file_format },
+                                    { label: 'Duration',    value: primaryEdition.duration_minutes ? `${primaryEdition.duration_minutes} min` : undefined },
                                 ].filter(f => f.value).map(field => (
                                     <div key={field.label} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
                                         <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)', flexShrink: 0 }}>{field.label}</span>
@@ -269,7 +337,7 @@ export default function BookDetailPage() {
                         <>
                             <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-heading)', lineHeight: 1.2 }}>{book.title}</h1>
                             <p style={{ margin: 0, fontSize: '15px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>{book.authors?.map(a => a.name).join(', ') || 'Unknown author'}</p>
-                            {book.description && <Card padding="md"><p style={{ margin: 0, fontSize: '14px', color: 'var(--color-text)', lineHeight: '1.7', fontFamily: 'var(--font-body)' }}>{book.description}</p></Card>}
+                            {primaryEdition?.description && <Card padding="md"><p style={{ margin: 0, fontSize: '14px', color: 'var(--color-text)', lineHeight: '1.7', fontFamily: 'var(--font-body)' }}>{primaryEdition.description}</p></Card>}
                         </>
                     )}
 
@@ -349,22 +417,38 @@ export default function BookDetailPage() {
                         </Card>
                     )}
 
-                    {/* All editions (view mode) */}
+                    {/* Edition selector — shown when there are multiple editions */}
                     {!editing && book.editions && book.editions.length > 1 && (
                         <div>
-                            <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-heading)' }}>All Editions ({book.editions.length})</h3>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {book.editions.map((edition: Edition) => (
-                                    <Card key={edition.id} padding="sm">
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                                            <Badge label={edition.format} variant="default" size="sm" />
-                                            {edition.language && <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>{edition.language.toUpperCase()}</span>}
-                                            {edition.publisher && <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>{edition.publisher}</span>}
-                                            {edition.isbn && <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)', marginLeft: 'auto' }}>ISBN: {edition.isbn}</span>}
-                                            <button onClick={() => { setSelectedEditionId(edition.id); setSelectedCondition('good'); setAddError(''); setAddOpen(true) }} style={{ marginLeft: 'auto', padding: '4px 10px', background: 'var(--color-primary)', color: 'var(--color-primary-text)', border: 'none', borderRadius: 'var(--border-radius)', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>+ Add</button>
-                                        </div>
-                                    </Card>
-                                ))}
+                            <h3 style={{ margin: '0 0 10px', fontSize: '13px', fontWeight: 700, color: 'var(--color-text-muted)', fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                Editions ({book.editions.length})
+                            </h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {book.editions.map((edition: Edition, idx: number) => {
+                                    const isSelected = idx === selectedEditionIdx
+                                    return (
+                                        <button
+                                            key={edition.id}
+                                            onClick={() => setSelectedEditionIdx(idx)}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                                padding: '8px 12px', width: '100%', textAlign: 'left', cursor: 'pointer',
+                                                background: isSelected ? 'var(--color-primary)' : 'var(--color-surface-alt)',
+                                                color: isSelected ? 'var(--color-primary-text)' : 'var(--color-text)',
+                                                border: `1px solid ${isSelected ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                                                borderRadius: 'var(--border-radius)',
+                                                fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: isSelected ? 600 : 400,
+                                                transition: 'var(--transition)',
+                                            }}
+                                        >
+                                            <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{edition.format}</span>
+                                            {edition.language && <span style={{ opacity: 0.85 }}>{edition.language.toUpperCase()}</span>}
+                                            {edition.published_at && <span style={{ opacity: 0.75 }}>{new Date(edition.published_at).getFullYear()}</span>}
+                                            {edition.publisher && <span style={{ opacity: 0.75, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{edition.publisher}</span>}
+                                            {edition.isbn && <span style={{ opacity: 0.6, marginLeft: 'auto', flexShrink: 0, fontSize: '11px' }}>{edition.isbn}</span>}
+                                        </button>
+                                    )
+                                })}
                             </div>
                         </div>
                     )}
@@ -372,8 +456,102 @@ export default function BookDetailPage() {
                     {/* Action buttons (view mode) */}
                     {!editing && (
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                            <button onClick={openAddModal} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--color-primary)', color: 'var(--color-primary-text)', border: 'none', borderRadius: 'var(--border-radius)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', transition: 'var(--transition)', fontFamily: 'var(--font-body)' }} onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-primary-hover)'} onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-primary)'}>➕ Add to my library</button>
-                            <button onClick={() => navigate('/books')} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--color-surface-alt)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', transition: 'var(--transition)', fontFamily: 'var(--font-body)' }}>← Back</button>
+                            {!copyIdParam && <button onClick={openAddModal} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--color-primary)', color: 'var(--color-primary-text)', border: 'none', borderRadius: 'var(--border-radius)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', transition: 'var(--transition)', fontFamily: 'var(--font-body)' }} onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-primary-hover)'} onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-primary)'}>➕ Add to my library</button>}
+                            <button onClick={() => navigate(copyIdParam ? '/library' : '/books')} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--color-surface-alt)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', transition: 'var(--transition)', fontFamily: 'var(--font-body)' }}>← {copyIdParam ? 'Back to library' : 'Back'}</button>
+                            {canModerate && (
+                                <button onClick={() => setDeleteConfirmOpen(true)} style={{ marginLeft: 'auto', padding: '10px 20px', background: 'transparent', color: 'var(--color-error, #dc2626)', border: '1px solid var(--color-error, #dc2626)', borderRadius: 'var(--border-radius)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>🗑 Delete book</button>
+                            )}
+                        </div>
+                    )}
+
+                    {/* ── Copy management panel (library context) ── */}
+                    {userBook && !editing && (
+                        <Card padding="lg">
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                                <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>My Copy</h3>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    {!copyEditing && <button onClick={startCopyEditing} style={{ padding: '5px 12px', background: 'var(--color-surface-alt)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Edit</button>}
+                                    <button onClick={() => removeCopyMutation.mutate()} disabled={removeCopyMutation.isPending} style={{ padding: '5px 12px', background: 'transparent', color: 'var(--color-error, #dc2626)', border: '1px solid var(--color-error, #dc2626)', borderRadius: 'var(--border-radius)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Remove from library</button>
+                                </div>
+                            </div>
+                            {copyEditing ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    <div>
+                                        <FieldLabel label="Reading status" />
+                                        <ToggleGroup value={copyStatus} onChange={v => setCopyStatus(v as typeof copyStatus)} options={[{ value: 'want_to_read', label: 'Want to read' }, { value: 'reading', label: 'Reading' }, { value: 'read', label: 'Read' }]} />
+                                    </div>
+                                    {copyStatus === 'reading' && (
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                            <div><FieldLabel label="Current page" hint="Optional" /><TextInput value={copyPage} onChange={setCopyPage} placeholder="e.g. 142" type="number" /></div>
+                                            <div><FieldLabel label="Started reading" /><TextInput value={copyStarted} onChange={setCopyStarted} placeholder="YYYY-MM-DD" type="date" /></div>
+                                        </div>
+                                    )}
+                                    {copyStatus === 'read' && (
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                            <div><FieldLabel label="Started reading" /><TextInput value={copyStarted} onChange={setCopyStarted} placeholder="YYYY-MM-DD" type="date" /></div>
+                                            <div><FieldLabel label="Finished reading" /><TextInput value={copyFinished} onChange={setCopyFinished} placeholder="YYYY-MM-DD" type="date" /></div>
+                                        </div>
+                                    )}
+                                    <div>
+                                        <FieldLabel label="Ownership" />
+                                        <ToggleGroup value={copyOwnedByUser ? 'owned' : 'borrowed'} onChange={v => setCopyOwnedByUser(v === 'owned')} options={[{ value: 'owned', label: '📦 I own it' }, { value: 'borrowed', label: '🤝 Borrowed' }]} />
+                                    </div>
+                                    {!copyOwnedByUser && (
+                                        <div><FieldLabel label="Borrowed from (user ID)" hint="Optional" /><TextInput value={copyBorrowedFrom} onChange={setCopyBorrowedFrom} placeholder="User ID of the lender" /></div>
+                                    )}
+                                    <div><FieldLabel label="Location" hint="Optional — e.g. shelf, box, on loan" /><TextInput value={copyLocation} onChange={setCopyLocation} placeholder="e.g. Living room shelf" /></div>
+                                    {copySaveError && <p style={{ margin: 0, fontSize: '12px', color: 'var(--color-error)', fontFamily: 'var(--font-body)' }}>{copySaveError}</p>}
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => copySaveMutation.mutate()} disabled={copySaveMutation.isPending} style={{ padding: '8px 16px', background: 'var(--color-primary)', color: 'var(--color-primary-text)', border: 'none', borderRadius: 'var(--border-radius)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>{copySaveMutation.isPending ? 'Saving…' : '✓ Save'}</button>
+                                        <button onClick={() => setCopyEditing(false)} style={{ padding: '8px 16px', background: 'var(--color-surface-alt)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', fontSize: '13px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Cancel</button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
+                                    <div>
+                                        <FieldLabel label="Status" />
+                                        <Badge label={{ want_to_read: 'Want to read', reading: 'Reading', read: 'Read' }[userBook.reading_status] ?? userBook.reading_status} variant={({ want_to_read: 'default', reading: 'warning', read: 'success' } as Record<string, 'default' | 'warning' | 'success'>)[userBook.reading_status] ?? 'default'} size="sm" />
+                                    </div>
+                                    {userBook.reading_status === 'reading' && userBook.current_page && (
+                                        <div><FieldLabel label="Current page" /><span style={{ fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>p. {userBook.current_page}</span></div>
+                                    )}
+                                    {(userBook.reading_status === 'reading' || userBook.reading_status === 'read') && userBook.started_reading_at && (
+                                        <div><FieldLabel label="Started" /><span style={{ fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>{new Date(userBook.started_reading_at).toLocaleDateString()}</span></div>
+                                    )}
+                                    {userBook.reading_status === 'read' && userBook.finished_reading_at && (
+                                        <div><FieldLabel label="Finished" /><span style={{ fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>{new Date(userBook.finished_reading_at).toLocaleDateString()}</span></div>
+                                    )}
+                                    <div>
+                                        <FieldLabel label="Ownership" />
+                                        <span style={{ fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>{userBook.owned_by_user ? '📦 Owned' : '🤝 Borrowed'}</span>
+                                    </div>
+                                    {!userBook.owned_by_user && userBook.borrowed_from && (
+                                        <div><FieldLabel label="Borrowed from" /><span style={{ fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>{userBook.borrowed_from}</span></div>
+                                    )}
+                                    {userBook.location && (
+                                        <div><FieldLabel label="Location" /><span style={{ fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>{userBook.location}</span></div>
+                                    )}
+                                    {userBook.condition && (
+                                        <div><FieldLabel label="Condition" /><span style={{ fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)', textTransform: 'capitalize' }}>{userBook.condition}</span></div>
+                                    )}
+                                </div>
+                            )}
+                        </Card>
+                    )}
+
+                    {/* Admin: edition management */}
+                    {canModerate && !editing && book.editions && book.editions.length > 0 && (
+                        <div>
+                            <h3 style={{ margin: '0 0 10px', fontSize: '13px', fontWeight: 700, color: 'var(--color-text-muted)', fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Edition Management</h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {book.editions.map((ed: Edition) => (
+                                    <div key={ed.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: 'var(--color-surface-alt)', borderRadius: 'var(--border-radius)', border: '1px solid var(--color-border)' }}>
+                                        <Badge label={ed.format} variant="default" size="sm" />
+                                        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)', flex: 1 }}>{[ed.language?.toUpperCase(), ed.publisher, ed.isbn].filter(Boolean).join(' · ')}</span>
+                                        <button onClick={() => setDeleteEditionId(ed.id)} style={{ padding: '3px 8px', background: 'transparent', color: 'var(--color-error, #dc2626)', border: '1px solid var(--color-error, #dc2626)', borderRadius: 'var(--border-radius)', fontSize: '11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Delete</button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>
@@ -400,6 +578,20 @@ export default function BookDetailPage() {
                     </div>
                     {addError && <p style={{ margin: 0, fontSize: '12px', color: 'var(--color-error)', fontFamily: 'var(--font-body)' }}>{addError}</p>}
                 </div>
+            </Modal>
+
+            {/* Delete book confirmation */}
+            <Modal isOpen={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} title="Delete book" confirmLabel="Delete (force)" onConfirm={() => { deleteBookMutation.mutate(true); setDeleteConfirmOpen(false) }} isLoading={deleteBookMutation.isPending} size="sm">
+                <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>
+                    This will soft-delete <strong>{book.title}</strong> and all its editions and copies. Members who own this edition will lose it from their library.
+                </p>
+            </Modal>
+
+            {/* Delete edition confirmation */}
+            <Modal isOpen={!!deleteEditionId} onClose={() => setDeleteEditionId(null)} title="Delete edition" confirmLabel="Delete edition" onConfirm={() => deleteEditionId && deleteEditionMutation.mutate(deleteEditionId)} isLoading={deleteEditionMutation.isPending} size="sm">
+                <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>
+                    This will soft-delete the selected edition and all its copies. Members who own this edition will lose it from their library.
+                </p>
             </Modal>
         </div>
     )

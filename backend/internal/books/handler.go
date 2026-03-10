@@ -26,30 +26,42 @@ type Handler struct {
 }
 
 type submitBookRequest struct {
-	Title         string       `json:"title"`
-	Description   *string      `json:"description"`
-	CoverURL      *string      `json:"cover_url"`
-	Authors       []string     `json:"authors"`
-	Genres        []string     `json:"genres"`
-	Edition       EditionInput `json:"edition"`
-	Condition     *string      `json:"condition"`
-	CatalogueOnly bool         `json:"catalogue_only"` // mod/admin: add to catalogue without creating a personal copy
+	Title             string       `json:"title"`
+	Authors           []string     `json:"authors"`
+	Genres            []string     `json:"genres"`
+	Edition           EditionInput `json:"edition"`
+	Condition         *string      `json:"condition"`
+	CatalogueOnly     bool         `json:"catalogue_only"` // mod/admin: add to catalogue without creating a personal copy
+	ReadingStatus     string       `json:"reading_status"` // want_to_read | reading | read
+	CurrentPage       *int         `json:"current_page"`
+	StartedReadingAt  *string      `json:"started_reading_at"`  // ISO8601 or empty
+	FinishedReadingAt *string      `json:"finished_reading_at"` // ISO8601 or empty
+	OwnedByUser       *bool        `json:"owned_by_user"`       // nil defaults to true
+	BorrowedFrom      *string      `json:"borrowed_from"`
+	Location          *string      `json:"location"`
 }
 
 type addCopyRequest struct {
-	EditionID string  `json:"edition_id"`
-	Condition *string `json:"condition"`
+	EditionID         string  `json:"edition_id"`
+	Condition         *string `json:"condition"`
+	ReadingStatus     string  `json:"reading_status"` // want_to_read | reading | read
+	CurrentPage       *int    `json:"current_page"`
+	StartedReadingAt  *string `json:"started_reading_at"`  // ISO8601 or empty
+	FinishedReadingAt *string `json:"finished_reading_at"` // ISO8601 or empty
+	OwnedByUser       *bool   `json:"owned_by_user"`       // nil defaults to true
+	BorrowedFrom      *string `json:"borrowed_from"`
+	Location          *string `json:"location"`
 }
 
 type updateBookRequest struct {
-	Title       *string  `json:"title"`
-	Description *string  `json:"description"`
-	CoverURL    *string  `json:"cover_url"`
-	Authors     []string `json:"authors"`
-	Genres      []string `json:"genres"`
-	Edition     *struct {
+	Title   *string  `json:"title"`
+	Authors []string `json:"authors"`
+	Genres  []string `json:"genres"`
+	Edition *struct {
 		ID              string   `json:"id"`
 		Format          string   `json:"format"`
+		Description     *string  `json:"description"`
+		CoverURL        *string  `json:"cover_url"`
 		Language        string   `json:"language"`
 		ISBN            *string  `json:"isbn"`
 		ASIN            *string  `json:"asin"`
@@ -65,7 +77,13 @@ type updateBookRequest struct {
 }
 
 type updateReadingStatusRequest struct {
-	Status string `json:"status"`
+	Status            string  `json:"status"`
+	CurrentPage       *int    `json:"current_page"`
+	StartedReadingAt  *string `json:"started_reading_at"`  // ISO8601 or empty string to clear
+	FinishedReadingAt *string `json:"finished_reading_at"` // ISO8601 or empty string to clear
+	OwnedByUser       *bool   `json:"owned_by_user"`
+	BorrowedFrom      *string `json:"borrowed_from"`
+	Location          *string `json:"location"`
 }
 
 func NewHandler(service *Service, lookupService LookupService, coversDir string) *Handler {
@@ -110,10 +128,13 @@ func (h *Handler) SubmitBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Treat empty string cover_url as absent (in edition)
+	if req.Edition.CoverURL != nil && *req.Edition.CoverURL == "" {
+		req.Edition.CoverURL = nil
+	}
+
 	var input SubmitBookInput = SubmitBookInput{
 		Title:         req.Title,
-		Description:   req.Description,
-		CoverURL:      req.CoverURL,
 		Authors:       req.Authors,
 		Genres:        req.Genres,
 		Edition:       req.Edition,
@@ -121,6 +142,15 @@ func (h *Handler) SubmitBook(w http.ResponseWriter, r *http.Request) {
 		UserID:        claims.UserID,
 		UserRole:      claims.Role,
 		CatalogueOnly: req.CatalogueOnly,
+		CopyOptions: CopyOptions{
+			ReadingStatus:     req.ReadingStatus,
+			CurrentPage:       req.CurrentPage,
+			StartedReadingAt:  req.StartedReadingAt,
+			FinishedReadingAt: req.FinishedReadingAt,
+			OwnedByUser:       req.OwnedByUser,
+			BorrowedFrom:      req.BorrowedFrom,
+			Location:          req.Location,
+		},
 	}
 
 	var result SubmitBookResult
@@ -199,6 +229,15 @@ func (h *Handler) AddCopy(w http.ResponseWriter, r *http.Request) {
 		EditionID: req.EditionID,
 		Condition: req.Condition,
 		UserID:    claims.UserID,
+		CopyOptions: CopyOptions{
+			ReadingStatus:     req.ReadingStatus,
+			CurrentPage:       req.CurrentPage,
+			StartedReadingAt:  req.StartedReadingAt,
+			FinishedReadingAt: req.FinishedReadingAt,
+			OwnedByUser:       req.OwnedByUser,
+			BorrowedFrom:      req.BorrowedFrom,
+			Location:          req.Location,
+		},
 	}
 
 	var result AddCopyResult
@@ -274,17 +313,21 @@ func (h *Handler) UpdateBook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := UpdateBookInput{
-		ID:          id,
-		Title:       req.Title,
-		Description: req.Description,
-		CoverURL:    req.CoverURL,
-		Authors:     req.Authors,
-		Genres:      req.Genres,
+		ID:      id,
+		Title:   req.Title,
+		Authors: req.Authors,
+		Genres:  req.Genres,
 	}
 	if req.Edition != nil {
+		// Treat empty string cover_url as absent
+		if req.Edition.CoverURL != nil && *req.Edition.CoverURL == "" {
+			req.Edition.CoverURL = nil
+		}
 		input.EditionID = req.Edition.ID
 		input.Edition = &EditionInput{
 			Format:          req.Edition.Format,
+			Description:     req.Edition.Description,
+			CoverURL:        req.Edition.CoverURL,
 			Language:        req.Edition.Language,
 			ISBN:            req.Edition.ISBN,
 			ASIN:            req.Edition.ASIN,
@@ -322,8 +365,15 @@ func (h *Handler) UpdateBook(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteBook(w http.ResponseWriter, r *http.Request) {
 	var id string = chi.URLParam(r, "id")
+	// ?force=true allows admin/mod to delete even if copies exist
+	force := r.URL.Query().Get("force") == "true"
 
-	var err error = h.service.DeleteBook(r.Context(), id)
+	var err error
+	if force {
+		err = h.service.ForceDeleteBook(r.Context(), id)
+	} else {
+		err = h.service.DeleteBook(r.Context(), id)
+	}
 	if err != nil {
 		if err.Error() == "book not found" {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -338,6 +388,21 @@ func (h *Handler) DeleteBook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "book deleted"})
+}
+
+func (h *Handler) DeleteEdition(w http.ResponseWriter, r *http.Request) {
+	var editionID string = chi.URLParam(r, "editionId")
+
+	if err := h.service.DeleteEdition(r.Context(), editionID); err != nil {
+		if err.Error() == "edition not found" {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to delete edition")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "edition deleted"})
 }
 
 func (h *Handler) GetMyBooks(w http.ResponseWriter, r *http.Request) {
@@ -393,7 +458,7 @@ func (h *Handler) BackfillCovers(w http.ResponseWriter, r *http.Request) {
 			if err != nil || coverURL == "" {
 				continue
 			}
-			err = h.service.UpdateCoverURL(r.Context(), book.ID, coverURL)
+			err = h.service.UpdateEditionCoverURL(r.Context(), edition.ID, coverURL)
 			if err == nil {
 				updated++
 				break
@@ -428,12 +493,22 @@ func (h *Handler) UpdateReadingStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.UpdateReadingStatus(r.Context(), copyID, claims.UserID, req.Status); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update status")
+	input := UpdateCopyInput{
+		Status:            req.Status,
+		CurrentPage:       req.CurrentPage,
+		StartedReadingAt:  req.StartedReadingAt,
+		FinishedReadingAt: req.FinishedReadingAt,
+		OwnedByUser:       req.OwnedByUser,
+		BorrowedFrom:      req.BorrowedFrom,
+		Location:          req.Location,
+	}
+
+	if err := h.service.UpdateReadingStatus(r.Context(), copyID, claims.UserID, input); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update copy")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "status updated"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "copy updated"})
 }
 
 func (h *Handler) RemoveCopy(w http.ResponseWriter, r *http.Request) {
@@ -494,7 +569,7 @@ func (h *Handler) GetMyLibrary(w http.ResponseWriter, r *http.Request) {
 // Saves the file to disk and updates cover_url with the public path /covers/{filename}.
 // Restricted to moderators and admins only (enforced via router middleware).
 func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	editionID := chi.URLParam(r, "id")
 
 	// 8 MB max
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
@@ -535,8 +610,8 @@ func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use book ID as filename so re-uploading replaces the previous file cleanly
-	filename := id + ext
+	// Use edition ID as filename so re-uploading replaces the previous file cleanly
+	filename := editionID + ext
 	destPath := filepath.Join(h.coversDir, filename)
 
 	dst, err := os.Create(destPath)
@@ -553,7 +628,7 @@ func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 
 	// Store the public URL path (served by the static file handler)
 	publicURL := fmt.Sprintf("/covers/%s", filename)
-	if err = h.service.UpdateCoverURL(r.Context(), id, publicURL); err != nil {
+	if err = h.service.UpdateEditionCoverURL(r.Context(), editionID, publicURL); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update cover URL")
 		return
 	}

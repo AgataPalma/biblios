@@ -11,13 +11,13 @@ export interface BooksResponse {
 
 export interface UpdateBookPayload {
     title?: string
-    description?: string
-    cover_url?: string
     authors?: string[]
     genres?: string[]
     edition?: {
         id: string            // required to know which edition to update
         format: string
+        description?: string
+        cover_url?: string
         isbn?: string
         asin?: string
         language: string
@@ -34,13 +34,13 @@ export interface UpdateBookPayload {
 
 export interface SubmitBookPayload {
     title: string
-    description?: string
-    cover_url?: string
     authors: string[]
     genres: string[]
     catalogue_only?: boolean
     edition: {
         format: string
+        description?: string
+        cover_url?: string
         isbn?: string
         asin?: string
         language: string
@@ -55,6 +55,14 @@ export interface SubmitBookPayload {
         audio_format?: string     // audiobook: MP3 | AAC | WMA | FLAC
     }
     condition?: string
+    // Initial copy state — ignored when catalogue_only is true
+    reading_status?: 'want_to_read' | 'reading' | 'read'
+    current_page?: number | null
+    started_reading_at?: string | null
+    finished_reading_at?: string | null
+    owned_by_user?: boolean
+    borrowed_from?: string | null
+    location?: string | null
 }
 
 export async function listBooks(page: number = 1, limit: number = 20): Promise<BooksResponse> {
@@ -79,10 +87,10 @@ export async function lookupByISBN(isbn: string): Promise<LookupResult> {
 
 // Upload a cover image file for a book (mod/admin only).
 // Sends multipart/form-data to POST /books/{id}/cover and returns the stored public URL.
-export async function uploadBookCover(bookId: string, file: File): Promise<string> {
+export async function uploadEditionCover(editionId: string, file: File): Promise<string> {
     const formData = new FormData()
     formData.append('cover', file)
-    const res = await apiClient.post<{ cover_url: string }>(`/books/${bookId}/cover`, formData, {
+    const res = await apiClient.post<{ cover_url: string }>(`/editions/${editionId}/cover`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
     })
     return res.data.cover_url
@@ -114,12 +122,30 @@ export async function getMyLibrary(page = 1, limit = 20) {
     return res.data
 }
 
-export async function updateReadingStatus(copyId: string, status: string): Promise<void> {
-    await apiClient.put(`/books/copies/${copyId}/status`, { status })
+export interface UpdateCopyPayload {
+    status: 'want_to_read' | 'reading' | 'read'
+    current_page?: number | null
+    started_reading_at?: string | null   // ISO8601 or empty string to clear
+    finished_reading_at?: string | null  // ISO8601 or empty string to clear
+    owned_by_user?: boolean
+    borrowed_from?: string | null
+    location?: string | null
+}
+
+export async function updateReadingStatus(copyId: string, payload: UpdateCopyPayload): Promise<void> {
+    await apiClient.put(`/books/copies/${copyId}/status`, payload)
 }
 
 export async function removeCopy(copyId: string): Promise<void> {
     await apiClient.delete(`/books/copies/${copyId}`)
+}
+
+export async function deleteBook(bookId: string, force = false): Promise<void> {
+    await apiClient.delete(`/books/${bookId}${force ? '?force=true' : ''}`)
+}
+
+export async function deleteEdition(bookId: string, editionId: string): Promise<void> {
+    await apiClient.delete(`/books/${bookId}/editions/${editionId}`)
 }
 
 export async function getPendingSubmissions(page = 1, limit = 20) {
@@ -164,9 +190,21 @@ export async function updateMyReview(
 }
 
 // Add a copy of an existing edition to the user's library
+export interface AddCopyPayload {
+    edition_id: string
+    condition?: string
+    reading_status?: 'want_to_read' | 'reading' | 'read'
+    current_page?: number | null
+    started_reading_at?: string | null
+    finished_reading_at?: string | null
+    owned_by_user?: boolean
+    borrowed_from?: string | null
+    location?: string | null
+}
+
 export async function addCopy(
     editionId: string,
-    opts?: { condition?: string }
+    opts?: Omit<AddCopyPayload, 'edition_id'>
 ): Promise<void> {
     await apiClient.post('/books/copies', { edition_id: editionId, ...opts })
 }

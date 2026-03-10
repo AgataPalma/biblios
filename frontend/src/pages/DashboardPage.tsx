@@ -69,6 +69,7 @@ function BookCover({
     )
 }
 
+
 // ── Status pill ────────────────────────────────────────────────────────────────
 function StatusPill({ status }: { status: string }) {
     const map: Record<string, { bg: string; text: string; label: string }> = {
@@ -95,8 +96,8 @@ export default function DashboardPage() {
     const navigate = useNavigate()
 
     const { data: libraryData, isLoading: loadingLibrary } = useQuery({
-        queryKey: ['my-library-dashboard'],
-        queryFn: () => getMyLibrary(1, 50),
+        queryKey: ['my-library', 1],
+        queryFn: () => getMyLibrary(1, 20),
     })
 
     const { data: catalogueData, isLoading: loadingCatalogue } = useQuery({
@@ -214,7 +215,7 @@ export default function DashboardPage() {
                             return (
                                 <div key={book.copy_id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                                     <BookCover
-                                        coverUrl={book.book.cover_url}
+                                        coverUrl={book.cover_url}
                                         title={book.book.title}
                                         height={height}
                                         selected={isSelected}
@@ -262,7 +263,7 @@ export default function DashboardPage() {
                                 color: 'var(--color-text-muted)',
                                 fontFamily: 'var(--font-body)',
                             }}>
-                                {selectedBook.book.authors?.map(a => a.name).join(', ') || 'Unknown author'}
+                                {selectedBook.book.authors?.length ? selectedBook.book.authors.map(a => a.name).join(', ') : 'Unknown author'}
                             </p>
                             <p style={{
                                 margin: 0,
@@ -400,7 +401,7 @@ export default function DashboardPage() {
                             {recentBooks.map(book => (
                                 <BookCover
                                     key={book.copy_id}
-                                    coverUrl={book.book.cover_url}
+                                    coverUrl={book.cover_url}
                                     title={book.book.title}
                                     height={44}
                                     onClick={() => navigate(`/books/${book.book.id}`)}
@@ -442,7 +443,7 @@ export default function DashboardPage() {
                                 onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = 'transparent'}
                             >
                                 <BookCover
-                                    coverUrl={book.book.cover_url}
+                                    coverUrl={book.cover_url}
                                     title={book.book.title}
                                     height={36}
                                 />
@@ -451,7 +452,7 @@ export default function DashboardPage() {
                                         {book.book.title}
                                     </p>
                                     <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
-                                        {book.book.authors?.map(a => a.name).join(', ') || 'Unknown author'}
+                                        {book.book.authors?.length ? book.book.authors.map(a => a.name).join(', ') : 'Unknown author'}
                                     </p>
                                 </div>
                                 <StatusPill status={book.reading_status} />
@@ -511,7 +512,7 @@ export default function DashboardPage() {
                                 onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = 'transparent'}
                             >
                                 <BookCover
-                                    coverUrl={book.cover_url}
+                                    coverUrl={book.editions?.[0]?.cover_url}
                                     title={book.title}
                                     height={36}
                                 />
