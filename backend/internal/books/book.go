@@ -42,24 +42,31 @@ type Genre struct {
 }
 
 type Book struct {
-	ID        string     `json:"id"`
-	Title     string     `json:"title"`
-	Status    string     `json:"status"`
-	Authors   []Author   `json:"authors"`
-	Genres    []Genre    `json:"genres"`
-	Editions  []Edition  `json:"editions,omitempty"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID             string     `json:"id"`
+	Title          string     `json:"title"`
+	Description    *string    `json:"description,omitempty"`
+	SeriesID       *string    `json:"series_id,omitempty"`
+	SeriesPosition *float64   `json:"series_position,omitempty"`
+	Series         *Series    `json:"series,omitempty"`
+	Status         string     `json:"status"`
+	Authors        []Author   `json:"authors"`
+	Genres         []Genre    `json:"genres"`
+	Editions       []Edition  `json:"editions,omitempty"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type Edition struct {
 	ID              string       `json:"id"`
 	BookID          string       `json:"book_id"`
+	Title           string       `json:"title"`
+	OriginalTitle   string       `json:"original_title"`
 	Format          string       `json:"format"`
 	Description     *string      `json:"description,omitempty"`
 	CoverURL        *string      `json:"cover_url,omitempty"`
-	ISBN            *string      `json:"isbn,omitempty"`
+	ISBN10          *string      `json:"isbn10,omitempty"`
+	ISBN13          *string      `json:"isbn13,omitempty"`
 	ASIN            *string      `json:"asin,omitempty"`
 	Language        string       `json:"language"`
 	Publisher       *string      `json:"publisher,omitempty"`
@@ -112,11 +119,6 @@ type Submission struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
-// Role check helpers
-func CanAutoApprove(role apictx.Role) bool {
-	return role == apictx.RoleModerator || role == apictx.RoleAdmin
-}
-
 type BookWithDetails struct {
 	ID       string    `json:"id"`
 	Title    string    `json:"title"`
@@ -146,6 +148,38 @@ type UserBook struct {
 	Language          *string    `json:"language,omitempty"`
 	CoverURL          *string    `json:"cover_url,omitempty"` // from book_editions
 	Book              Book       `json:"book"`
+}
+
+type UserBooksResult struct {
+	Books []UserBook `json:"books"`
+	Total int        `json:"total"`
+	Page  int        `json:"page"`
+	Limit int        `json:"limit"`
+}
+
+func (e Edition) PreferredISBN() string {
+	if e.ISBN13 != nil && *e.ISBN13 != "" {
+		return *e.ISBN13
+	}
+	if e.ISBN10 != nil && *e.ISBN10 != "" {
+		return *e.ISBN10
+	}
+	return ""
+}
+
+type Series struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Description *string    `json:"description,omitempty"`
+	Status      string     `json:"status"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+// Role check helpers
+func CanAutoApprove(role apictx.Role) bool {
+	return role == apictx.RoleModerator || role == apictx.RoleAdmin
 }
 
 // parsePublishedAt parses a user-supplied year ("2001") or full date ("2001-09-01")

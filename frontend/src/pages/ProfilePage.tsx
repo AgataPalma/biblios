@@ -400,8 +400,8 @@ function EmailSection() {
 
     const mutation = useMutation({
         mutationFn: (payload: UpdateEmailPayload) => updateEmail(payload),
-        onSuccess: (updatedUser) => {
-            if (token) setAuth(token, updatedUser)
+        onSuccess: (updateEmail) => {
+            if (token) setAuth(token, updateEmail)
             setCurrentPassword('')
             setSuccess('Email address updated.')
             setError('')

@@ -3,6 +3,7 @@ package lookup
 import (
 	"context"
 	"fmt"
+	"github.com/AgataPalma/biblios/internal/isbn"
 	"log/slog"
 )
 
@@ -18,23 +19,45 @@ func NewService(googleAPIKey string) *Service {
 	}
 }
 
-func (s *Service) LookupByISBN(ctx context.Context, isbn string) (*GoogleBooksResult, error) {
+func (s *Service) LookupByISBN(ctx context.Context, isbnInput string) (*GoogleBooksResult, error) {
+	// Normalize the ISBN to ensure we always use ISBN-13 for API calls
+	isbnPair, err := isbn.Normalize(isbnInput)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ISBN: %w", err)
+	}
+
+	// Always use ISBN-13 for external API calls
+	searchISBN := isbnPair.ISBN13
+
 	// Try Google Books first
 	var result *GoogleBooksResult
-	var err error
-
-	result, err = s.google.SearchByISBN(ctx, isbn)
+	result, err = s.google.SearchByISBN(ctx, searchISBN)
 	if err != nil {
 		slog.Warn("Google Books ISBN lookup failed, trying OpenLibrary", "error", err)
 	}
 	if result != nil {
+		// Update the result with properly normalized ISBN values
+		result.ISBN10 = ""
+		if isbnPair.ISBN10 != nil {
+			result.ISBN10 = *isbnPair.ISBN10
+		}
+		result.ISBN13 = isbnPair.ISBN13
 		return result, nil
 	}
 
 	// Fallback to OpenLibrary
-	result, err = s.openLibrary.SearchByISBN(ctx, isbn)
+	result, err = s.openLibrary.SearchByISBN(ctx, searchISBN)
 	if err != nil {
 		return nil, fmt.Errorf("both lookup services failed: %w", err)
+	}
+
+	if result != nil {
+		// Update the result with properly normalized ISBN values
+		result.ISBN10 = ""
+		if isbnPair.ISBN10 != nil {
+			result.ISBN10 = *isbnPair.ISBN10
+		}
+		result.ISBN13 = isbnPair.ISBN13
 	}
 
 	return result, nil
@@ -64,10 +87,10 @@ func (s *Service) LookupByTitleAuthor(ctx context.Context, title string, author 
 
 	var ptResults []GoogleBooksResult
 	if ptGoogle.list != nil {
-		ptResults = append(ptResults, ptGoogle.list.Results...)
+		ptResults = append(ptResults, s.normalizeISBNsInResults(ptGoogle.list.Results)...)
 	}
 	if ptOl.list != nil {
-		ptResults = append(ptResults, ptOl.list.Results...)
+		ptResults = append(ptResults, s.normalizeISBNsInResults(ptOl.list.Results)...)
 	}
 
 	// ── Round 2: Unrestricted ─────────────────────────────────────────────────
@@ -95,10 +118,10 @@ func (s *Service) LookupByTitleAuthor(ctx context.Context, title string, author 
 
 	var allResults []GoogleBooksResult
 	if googleRes.list != nil {
-		allResults = append(allResults, googleRes.list.Results...)
+		allResults = append(allResults, s.normalizeISBNsInResults(googleRes.list.Results)...)
 	}
 	if olRes.list != nil {
-		allResults = append(allResults, olRes.list.Results...)
+		allResults = append(allResults, s.normalizeISBNsInResults(olRes.list.Results)...)
 	}
 
 	if len(ptResults) == 0 && len(allResults) == 0 {
@@ -158,6 +181,34 @@ func (s *Service) LookupByTitleAuthor(ctx context.Context, title string, author 
 		Page:     page,
 		PageSize: 20,
 	}, nil
+}
+
+// normalizeISBNsInResults ensures all results have properly normalized ISBN values
+func (s *Service) normalizeISBNsInResults(results []GoogleBooksResult) []GoogleBooksResult {
+	normalized := make([]GoogleBooksResult, len(results))
+	for i, result := range results {
+		normalized[i] = result
+
+		// Try to normalize ISBN if we have one
+		var isbnToNormalize string
+		if result.ISBN13 != "" {
+			isbnToNormalize = result.ISBN13
+		} else if result.ISBN10 != "" {
+			isbnToNormalize = result.ISBN10
+		}
+
+		if isbnToNormalize != "" {
+			if isbnPair, err := isbn.Normalize(isbnToNormalize); err == nil {
+				normalized[i].ISBN13 = isbnPair.ISBN13
+				if isbnPair.ISBN10 != nil {
+					normalized[i].ISBN10 = *isbnPair.ISBN10
+				} else {
+					normalized[i].ISBN10 = ""
+				}
+			}
+		}
+	}
+	return normalized
 }
 
 // metadataScore counts how many fields are populated — higher = richer entry

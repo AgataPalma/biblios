@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/AgataPalma/biblios/internal/httpx"
 	"io"
 	"net/http"
 	"os"
@@ -29,6 +30,8 @@ type submitBookRequest struct {
 	Title             string       `json:"title"`
 	Authors           []string     `json:"authors"`
 	Genres            []string     `json:"genres"`
+	SeriesName        *string      `json:"series_name"`
+	SeriesPosition    *float64     `json:"series_position"`
 	Edition           EditionInput `json:"edition"`
 	Condition         *string      `json:"condition"`
 	CatalogueOnly     bool         `json:"catalogue_only"` // mod/admin: add to catalogue without creating a personal copy
@@ -54,16 +57,19 @@ type addCopyRequest struct {
 }
 
 type updateBookRequest struct {
-	Title   *string  `json:"title"`
-	Authors []string `json:"authors"`
-	Genres  []string `json:"genres"`
-	Edition *struct {
+	Title          *string  `json:"title"`
+	Authors        []string `json:"authors"`
+	Genres         []string `json:"genres"`
+	SeriesName     *string  `json:"series_name"`
+	SeriesPosition *float64 `json:"series_position"`
+	Edition        *struct {
 		ID              string   `json:"id"`
 		Format          string   `json:"format"`
 		Description     *string  `json:"description"`
 		CoverURL        *string  `json:"cover_url"`
 		Language        string   `json:"language"`
-		ISBN            *string  `json:"isbn"`
+		ISBN10          *string  `json:"isbn10"`
+		ISBN13          *string  `json:"isbn13"`
 		ASIN            *string  `json:"asin"`
 		Publisher       *string  `json:"publisher"`
 		EditionLabel    *string  `json:"edition"`
@@ -100,31 +106,31 @@ func (h *Handler) SubmitBook(w http.ResponseWriter, r *http.Request) {
 
 	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	var req submitBookRequest
 	var err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if req.Title == "" {
-		writeError(w, http.StatusUnprocessableEntity, "title is required")
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "title is required")
 		return
 	}
 	if len(req.Authors) == 0 {
-		writeError(w, http.StatusUnprocessableEntity, "at least one author is required")
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "at least one author is required")
 		return
 	}
 	if req.Edition.Format == "" {
-		writeError(w, http.StatusUnprocessableEntity, "edition format is required")
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "edition format is required")
 		return
 	}
 	if req.Edition.Language == "" {
-		writeError(w, http.StatusUnprocessableEntity, "edition language is required")
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "edition language is required")
 		return
 	}
 
@@ -133,15 +139,17 @@ func (h *Handler) SubmitBook(w http.ResponseWriter, r *http.Request) {
 		req.Edition.CoverURL = nil
 	}
 
-	var input SubmitBookInput = SubmitBookInput{
-		Title:         req.Title,
-		Authors:       req.Authors,
-		Genres:        req.Genres,
-		Edition:       req.Edition,
-		Condition:     req.Condition,
-		UserID:        claims.UserID,
-		UserRole:      claims.Role,
-		CatalogueOnly: req.CatalogueOnly,
+	var input = SubmitBookInput{
+		Title:          req.Title,
+		Authors:        req.Authors,
+		Genres:         req.Genres,
+		SeriesName:     req.SeriesName,
+		SeriesPosition: req.SeriesPosition,
+		Edition:        req.Edition,
+		Condition:      req.Condition,
+		UserID:         claims.UserID,
+		UserRole:       claims.Role,
+		CatalogueOnly:  req.CatalogueOnly,
 		CopyOptions: CopyOptions{
 			ReadingStatus:     req.ReadingStatus,
 			CurrentPage:       req.CurrentPage,
@@ -158,27 +166,29 @@ func (h *Handler) SubmitBook(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err.Error() == "edition with this ISBN already exists" {
 			var isbn string
-			if req.Edition.ISBN != nil {
-				isbn = *req.Edition.ISBN
+			if req.Edition.ISBN13 != nil && *req.Edition.ISBN13 != "" {
+				isbn = *req.Edition.ISBN13
+			} else if req.Edition.ISBN10 != nil {
+				isbn = *req.Edition.ISBN10
 			}
 			existing, _ := h.service.FindExistingEditionByISBN(r.Context(), isbn)
-			writeJSON(w, http.StatusConflict, map[string]interface{}{
+			httpx.WriteJSON(w, http.StatusConflict, map[string]interface{}{
 				"error":   "edition already exists",
 				"edition": existing,
 			})
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to submit book")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to submit book")
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, result)
+	httpx.WriteJSON(w, http.StatusCreated, result)
 }
 
 func (h *Handler) CheckDuplicate(w http.ResponseWriter, r *http.Request) {
 	var isbn string = r.URL.Query().Get("isbn")
 	if isbn == "" {
-		writeError(w, http.StatusBadRequest, "isbn query parameter is required")
+		httpx.WriteError(w, http.StatusBadRequest, "isbn query parameter is required")
 		return
 	}
 
@@ -186,18 +196,18 @@ func (h *Handler) CheckDuplicate(w http.ResponseWriter, r *http.Request) {
 	var err error
 	edition, err = h.service.FindExistingEditionByISBN(r.Context(), isbn)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to check for duplicates")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to check for duplicates")
 		return
 	}
 
 	if edition == nil {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"exists": false,
 		})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"exists":  true,
 		"edition": edition,
 	})
@@ -209,19 +219,19 @@ func (h *Handler) AddCopy(w http.ResponseWriter, r *http.Request) {
 
 	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	var req addCopyRequest
 	var err error = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if req.EditionID == "" {
-		writeError(w, http.StatusUnprocessableEntity, "edition_id is required")
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "edition_id is required")
 		return
 	}
 
@@ -244,18 +254,18 @@ func (h *Handler) AddCopy(w http.ResponseWriter, r *http.Request) {
 	result, err = h.service.AddCopyOfExistingEdition(r.Context(), input)
 	if err != nil {
 		if err.Error() == "edition is not yet approved" {
-			writeError(w, http.StatusConflict, err.Error())
+			httpx.WriteError(w, http.StatusConflict, err.Error())
 			return
 		}
 		if err.Error() == "edition not found" {
-			writeError(w, http.StatusNotFound, err.Error())
+			httpx.WriteError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to add copy")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to add copy")
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, result)
+	httpx.WriteJSON(w, http.StatusCreated, result)
 }
 
 func (h *Handler) ListBooks(w http.ResponseWriter, r *http.Request) {
@@ -281,11 +291,11 @@ func (h *Handler) ListBooks(w http.ResponseWriter, r *http.Request) {
 	var result ListBooksResult
 	result, err = h.service.ListBooks(r.Context(), page, limit, sort)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list books")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list books")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) GetBook(w http.ResponseWriter, r *http.Request) {
@@ -295,11 +305,11 @@ func (h *Handler) GetBook(w http.ResponseWriter, r *http.Request) {
 	var err error
 	book, err = h.service.GetBook(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "book not found")
+		httpx.WriteError(w, http.StatusNotFound, "book not found")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, book)
+	httpx.WriteJSON(w, http.StatusOK, book)
 }
 
 func (h *Handler) UpdateBook(w http.ResponseWriter, r *http.Request) {
@@ -308,15 +318,17 @@ func (h *Handler) UpdateBook(w http.ResponseWriter, r *http.Request) {
 	var req updateBookRequest
 	var err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	input := UpdateBookInput{
-		ID:      id,
-		Title:   req.Title,
-		Authors: req.Authors,
-		Genres:  req.Genres,
+		ID:             id,
+		Title:          req.Title,
+		Authors:        req.Authors,
+		Genres:         req.Genres,
+		SeriesName:     req.SeriesName,
+		SeriesPosition: req.SeriesPosition,
 	}
 	if req.Edition != nil {
 		// Treat empty string cover_url as absent
@@ -329,7 +341,8 @@ func (h *Handler) UpdateBook(w http.ResponseWriter, r *http.Request) {
 			Description:     req.Edition.Description,
 			CoverURL:        req.Edition.CoverURL,
 			Language:        req.Edition.Language,
-			ISBN:            req.Edition.ISBN,
+			ISBN10:          req.Edition.ISBN10,
+			ISBN13:          req.Edition.ISBN13,
 			ASIN:            req.Edition.ASIN,
 			Publisher:       req.Edition.Publisher,
 			Edition:         req.Edition.EditionLabel,
@@ -344,23 +357,23 @@ func (h *Handler) UpdateBook(w http.ResponseWriter, r *http.Request) {
 	err = h.service.UpdateBook(r.Context(), input)
 	if err != nil {
 		if err.Error() == "title is required" {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
 		if err.Error() == "book not found" {
-			writeError(w, http.StatusNotFound, err.Error())
+			httpx.WriteError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to update book")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update book")
 		return
 	}
 
 	book, err := h.service.GetBook(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reload book")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to reload book")
 		return
 	}
-	writeJSON(w, http.StatusOK, book)
+	httpx.WriteJSON(w, http.StatusOK, book)
 }
 
 func (h *Handler) DeleteBook(w http.ResponseWriter, r *http.Request) {
@@ -376,18 +389,18 @@ func (h *Handler) DeleteBook(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		if err.Error() == "book not found" {
-			writeError(w, http.StatusNotFound, err.Error())
+			httpx.WriteError(w, http.StatusNotFound, err.Error())
 			return
 		}
 		if err.Error() == "cannot delete book with existing copies" {
-			writeError(w, http.StatusConflict, err.Error())
+			httpx.WriteError(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to delete book")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete book")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "book deleted"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "book deleted"})
 }
 
 func (h *Handler) DeleteEdition(w http.ResponseWriter, r *http.Request) {
@@ -395,14 +408,14 @@ func (h *Handler) DeleteEdition(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.DeleteEdition(r.Context(), editionID); err != nil {
 		if err.Error() == "edition not found" {
-			writeError(w, http.StatusNotFound, err.Error())
+			httpx.WriteError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to delete edition")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete edition")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "edition deleted"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "edition deleted"})
 }
 
 func (h *Handler) GetMyBooks(w http.ResponseWriter, r *http.Request) {
@@ -410,7 +423,7 @@ func (h *Handler) GetMyBooks(w http.ResponseWriter, r *http.Request) {
 	var ok bool
 	claims, ok = r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -431,30 +444,31 @@ func (h *Handler) GetMyBooks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var result ListBooksResult
+	var result UserBooksResult
 	result, err = h.service.GetUserBooks(r.Context(), claims.UserID, page, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get user books")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get user books")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) BackfillCovers(w http.ResponseWriter, r *http.Request) {
 	books, err := h.service.GetBooksWithoutCovers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to fetch books")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to fetch books")
 		return
 	}
 
 	updated := 0
 	for _, book := range books {
 		for _, edition := range book.Editions {
-			if edition.ISBN == nil || *edition.ISBN == "" {
+			isbn := edition.PreferredISBN()
+			if isbn == "" {
 				continue
 			}
-			coverURL, err := h.lookupService.LookupByISBN(r.Context(), *edition.ISBN)
+			coverURL, err := h.lookupService.LookupByISBN(r.Context(), isbn)
 			if err != nil || coverURL == "" {
 				continue
 			}
@@ -466,102 +480,9 @@ func (h *Handler) BackfillCovers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"total":   len(books),
 		"updated": updated,
-	})
-}
-
-func (h *Handler) UpdateReadingStatus(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	copyID := chi.URLParam(r, "id")
-
-	var req updateReadingStatusRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	valid := map[string]bool{"want_to_read": true, "reading": true, "read": true}
-	if !valid[req.Status] {
-		writeError(w, http.StatusUnprocessableEntity, "invalid status")
-		return
-	}
-
-	input := UpdateCopyInput{
-		Status:            req.Status,
-		CurrentPage:       req.CurrentPage,
-		StartedReadingAt:  req.StartedReadingAt,
-		FinishedReadingAt: req.FinishedReadingAt,
-		OwnedByUser:       req.OwnedByUser,
-		BorrowedFrom:      req.BorrowedFrom,
-		Location:          req.Location,
-	}
-
-	if err := h.service.UpdateReadingStatus(r.Context(), copyID, claims.UserID, input); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update copy")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"message": "copy updated"})
-}
-
-func (h *Handler) RemoveCopy(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	copyID := chi.URLParam(r, "id")
-
-	if err := h.service.RemoveCopy(r.Context(), copyID, claims.UserID); err != nil {
-		if err.Error() == "copy not found" {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to remove copy")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"message": "copy removed"})
-}
-
-func (h *Handler) GetMyLibrary(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	page, limit := 1, 20
-	if p := r.URL.Query().Get("page"); p != "" {
-		if v, err := strconv.Atoi(p); err == nil && v > 0 {
-			page = v
-		}
-	}
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 100 {
-			limit = v
-		}
-	}
-
-	books, total, err := h.service.GetMyLibrary(r.Context(), claims.UserID, page, limit)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get library")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"books": books,
-		"total": total,
-		"page":  page,
-		"limit": limit,
 	})
 }
 
@@ -573,13 +494,13 @@ func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 
 	// 8 MB max
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "file too large or invalid multipart form")
+		httpx.WriteError(w, http.StatusBadRequest, "file too large or invalid multipart form")
 		return
 	}
 
 	file, header, err := r.FormFile("cover")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "cover field is required")
+		httpx.WriteError(w, http.StatusBadRequest, "cover field is required")
 		return
 	}
 	defer file.Close()
@@ -596,7 +517,7 @@ func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 		// Fall back to file extension if Content-Type is missing/generic
 		ext = strings.ToLower(filepath.Ext(header.Filename))
 		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" {
-			writeError(w, http.StatusUnprocessableEntity, "only JPEG, PNG and WebP images are accepted")
+			httpx.WriteError(w, http.StatusUnprocessableEntity, "only JPEG, PNG and WebP images are accepted")
 			return
 		}
 		if ext == ".jpeg" {
@@ -606,7 +527,7 @@ func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the covers directory exists
 	if err = os.MkdirAll(h.coversDir, 0755); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create covers directory")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create covers directory")
 		return
 	}
 
@@ -616,32 +537,22 @@ func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 
 	dst, err := os.Create(destPath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save cover image")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to save cover image")
 		return
 	}
 	defer dst.Close()
 
 	if _, err = io.Copy(dst, file); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to write cover image")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to write cover image")
 		return
 	}
 
 	// Store the public URL path (served by the static file handler)
 	publicURL := fmt.Sprintf("/covers/%s", filename)
 	if err = h.service.UpdateEditionCoverURL(r.Context(), editionID, publicURL); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update cover URL")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update cover URL")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"cover_url": publicURL})
-}
-
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"cover_url": publicURL})
 }

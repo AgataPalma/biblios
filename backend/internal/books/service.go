@@ -7,19 +7,16 @@ import (
 	"strings"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
+	"github.com/AgataPalma/biblios/internal/isbn"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type bookRepository interface {
-	UpdateBook(ctx context.Context, id string, title *string) error
+	UpdateBook(ctx context.Context, id string, title *string, description *string) error
 	UpdateEditionDetails(ctx context.Context, editionID string, e Edition) error
-	FindUserBooksWithCopies(ctx context.Context, userID string, page, limit int) ([]UserBook, int, error)
-	UpdateReadingStatus(ctx context.Context, copyID, userID string, input UpdateCopyInput) error
-	RemoveCopy(ctx context.Context, copyID, userID string) error
 	ListApprovedBooks(ctx context.Context, page, limit int, sort string) ([]Book, int, error)
 	FindBookWithDetails(ctx context.Context, id string) (*Book, error)
-	FindUserBooks(ctx context.Context, userID string, page, limit int) ([]Book, int, error)
 	FindBooksWithoutCovers(ctx context.Context) ([]BookWithDetails, error)
 	UpdateEditionCoverURL(ctx context.Context, editionID, coverURL string) error
 	FindEditionByISBN(ctx context.Context, isbn string) (*Edition, error)
@@ -32,8 +29,8 @@ type bookRepository interface {
 	ReplaceBookAuthors(ctx context.Context, bookID string, authorNames []string, autoApprove bool) error
 	ReplaceBookGenres(ctx context.Context, bookID string, genreNames []string, autoApprove bool) error
 	ReplaceEditionTranslators(ctx context.Context, editionID string, names []string) error
-	withDB(db DB) *txRepository // needed so SubmitBook can create a txRepository
 	FindEditionByID(ctx context.Context, id string) (*Edition, error)
+	withDB(db DB) *txRepository // needed so SubmitBook can create a txRepository
 }
 
 type Service struct {
@@ -46,22 +43,25 @@ func NewService(repo *Repository, db *pgxpool.Pool) *Service {
 }
 
 type SubmitBookInput struct {
-	Title         string
-	Authors       []string
-	Genres        []string
-	Edition       EditionInput
-	Condition     *string
-	UserID        string
-	UserRole      apictx.Role
-	CatalogueOnly bool // when true, book is added to catalogue only — no personal copy created
-	CopyOptions        // initial reading state for the personal copy
+	Title          string
+	Authors        []string
+	Genres         []string
+	SeriesName     *string  `json:"series_name"`
+	SeriesPosition *float64 `json:"series_position"`
+	Edition        EditionInput
+	Condition      *string
+	UserID         string
+	UserRole       apictx.Role
+	CatalogueOnly  bool // when true, book is added to catalogue only — no personal copy created
+	CopyOptions         // initial reading state for the personal copy
 }
 
 type EditionInput struct {
 	Format          string   `json:"format"`
 	Description     *string  `json:"description"`
 	CoverURL        *string  `json:"cover_url"`
-	ISBN            *string  `json:"isbn"`
+	ISBN10          *string  `json:"isbn10"`
+	ISBN13          *string  `json:"isbn13"`
 	ASIN            *string  `json:"asin"`
 	Language        string   `json:"language"`
 	Publisher       *string  `json:"publisher"`
@@ -126,12 +126,48 @@ type ListBooksResult struct {
 }
 
 type UpdateBookInput struct {
-	ID        string
-	Title     *string
-	Authors   []string      // if non-nil, replaces all existing authors
-	Genres    []string      // if non-nil, replaces all existing genres
-	EditionID string        // optional — if set, edition fields are also updated
-	Edition   *EditionInput // optional — edition fields to update
+	ID             string
+	Title          *string
+	Description    *string
+	Authors        []string
+	Genres         []string
+	SeriesName     *string
+	SeriesPosition *float64
+	EditionID      string
+	Edition        *EditionInput
+}
+
+func normalizeEditionISBNs(input *EditionInput) (*string, *string, error) {
+	if input == nil {
+		return nil, nil, nil
+	}
+	if input.ISBN13 != nil && *input.ISBN13 != "" {
+		pair, err := isbn.Normalize(*input.ISBN13)
+		if err != nil {
+			return nil, nil, err
+		}
+		var isbn10 *string
+		if pair.ISBN10 != nil {
+			v := *pair.ISBN10
+			isbn10 = &v
+		}
+		isbn13 := pair.ISBN13
+		return isbn10, &isbn13, nil
+	}
+	if input.ISBN10 != nil && *input.ISBN10 != "" {
+		pair, err := isbn.Normalize(*input.ISBN10)
+		if err != nil {
+			return nil, nil, err
+		}
+		var isbn10 *string
+		if pair.ISBN10 != nil {
+			v := *pair.ISBN10
+			isbn10 = &v
+		}
+		isbn13 := pair.ISBN13
+		return isbn10, &isbn13, nil
+	}
+	return nil, nil, nil
 }
 
 func (s *Service) AddCopyOfExistingEdition(ctx context.Context, input AddCopyInput) (AddCopyResult, error) {
@@ -192,17 +228,27 @@ func (s *Service) AddCopyOfExistingEdition(ctx context.Context, input AddCopyInp
 	return result, nil
 }
 
-func (s *Service) FindExistingEditionByISBN(ctx context.Context, isbn string) (*Edition, error) {
-	return s.repo.FindEditionByISBN(ctx, isbn)
+func (s *Service) FindExistingEditionByISBN(ctx context.Context, isbnInput string) (*Edition, error) {
+	if isbnInput == "" {
+		return nil, nil
+	}
+	if _, err := isbn.Normalize(isbnInput); err != nil {
+		return nil, fmt.Errorf("invalid ISBN: %w", err)
+	}
+	return s.repo.FindEditionByISBN(ctx, isbn.Clean(isbnInput))
 }
 
 func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (SubmitBookResult, error) {
 	var autoApprove bool = CanAutoApprove(input.UserRole)
 	var result SubmitBookResult
 
+	isbn10, isbn13, err := normalizeEditionISBNs(&input.Edition)
+	if err != nil {
+		return SubmitBookResult{}, fmt.Errorf("invalid ISBN: %w", err)
+	}
+
 	// Start transaction
 	var tx pgxTx
-	var err error
 	tx, err = s.db.Begin(ctx)
 	if err != nil {
 		return SubmitBookResult{}, fmt.Errorf("failed to start transaction: %w", err)
@@ -279,13 +325,28 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 		}
 	}
 
+	// After book is created/found, link series if provided
+	if input.SeriesName != nil && *input.SeriesName != "" {
+		series, err := repo.FindOrCreateSeries(ctx, *input.SeriesName, autoApprove)
+		if err != nil {
+			return SubmitBookResult{}, err
+		}
+		if err = repo.UpdateBookSeries(ctx, book.ID, series.ID, input.SeriesPosition); err != nil {
+			return SubmitBookResult{}, err
+		}
+		book.SeriesID = &series.ID
+		book.SeriesPosition = input.SeriesPosition
+		book.Series = &series
+	}
+
 	// Create edition
 	var edition Edition = Edition{
 		BookID:          book.ID,
 		Format:          input.Edition.Format,
 		Description:     input.Edition.Description,
 		CoverURL:        input.Edition.CoverURL,
-		ISBN:            input.Edition.ISBN,
+		ISBN10:          isbn10,
+		ISBN13:          isbn13,
 		ASIN:            input.Edition.ASIN,
 		Language:        input.Edition.Language,
 		Publisher:       input.Edition.Publisher,
@@ -416,8 +477,26 @@ func (s *Service) UpdateBook(ctx context.Context, input UpdateBookInput) error {
 	if input.Title != nil && *input.Title == "" {
 		return fmt.Errorf("title is required")
 	}
-	if err := s.repo.UpdateBook(ctx, input.ID, input.Title); err != nil {
+	if err := s.repo.UpdateBook(ctx, input.ID, input.Title, input.Description); err != nil {
 		return err
+	}
+	if input.SeriesName != nil && *input.SeriesName != "" {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to start transaction: %w", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		repo := s.repo.withDB(tx)
+		series, err := repo.FindOrCreateSeries(ctx, *input.SeriesName, true)
+		if err != nil {
+			return err
+		}
+		if err := repo.UpdateBookSeries(ctx, input.ID, series.ID, input.SeriesPosition); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
 	}
 	if len(input.Authors) > 0 {
 		if err := s.repo.ReplaceBookAuthors(ctx, input.ID, input.Authors, true); err != nil {
@@ -430,13 +509,18 @@ func (s *Service) UpdateBook(ctx context.Context, input UpdateBookInput) error {
 		}
 	}
 	if input.EditionID != "" && input.Edition != nil {
+		isbn10, isbn13, err := normalizeEditionISBNs(input.Edition)
+		if err != nil {
+			return fmt.Errorf("invalid ISBN: %w", err)
+		}
 		edition := Edition{
 			ID:              input.EditionID,
 			Format:          input.Edition.Format,
 			Description:     input.Edition.Description,
 			CoverURL:        input.Edition.CoverURL,
 			Language:        input.Edition.Language,
-			ISBN:            input.Edition.ISBN,
+			ISBN10:          isbn10,
+			ISBN13:          isbn13,
 			ASIN:            input.Edition.ASIN,
 			Publisher:       input.Edition.Publisher,
 			Edition:         input.Edition.Edition,
@@ -475,28 +559,6 @@ func (s *Service) DeleteEdition(ctx context.Context, editionID string) error {
 	return s.repo.DeleteEdition(ctx, editionID)
 }
 
-func (s *Service) GetUserBooks(ctx context.Context, userID string, page int, limit int) (ListBooksResult, error) {
-	var bookList []Book
-	var total int
-	var err error
-
-	bookList, total, err = s.repo.FindUserBooks(ctx, userID, page, limit)
-	if err != nil {
-		return ListBooksResult{}, err
-	}
-
-	if bookList == nil {
-		bookList = []Book{}
-	}
-
-	return ListBooksResult{
-		Books: bookList,
-		Total: total,
-		Page:  page,
-		Limit: limit,
-	}, nil
-}
-
 func (s *Service) GetBooksWithoutCovers(ctx context.Context) ([]BookWithDetails, error) {
 	return s.repo.FindBooksWithoutCovers(ctx)
 }
@@ -505,26 +567,96 @@ func (s *Service) UpdateEditionCoverURL(ctx context.Context, editionID, coverURL
 	return s.repo.UpdateEditionCoverURL(ctx, editionID, coverURL)
 }
 
-func (s *Service) UpdateReadingStatus(ctx context.Context, copyID, userID string, input UpdateCopyInput) error {
-	return s.repo.UpdateReadingStatus(ctx, copyID, userID, input)
-}
-func (s *Service) RemoveCopy(ctx context.Context, copyID, userID string) error {
-	return s.repo.RemoveCopy(ctx, copyID, userID)
-}
-
-func (s *Service) GetMyLibrary(ctx context.Context, userID string, page, limit int) ([]UserBook, int, error) {
-	books, total, err := s.repo.FindUserBooksWithCopies(ctx, userID, page, limit)
-	if err != nil {
-		return nil, 0, err
-	}
-	if books == nil {
-		books = []UserBook{}
-	}
-	return books, total, nil
-}
-
 func (s *Service) FindEditionByID(ctx context.Context, id string) (*Edition, error) {
 	return s.repo.FindEditionByID(ctx, id)
+}
+
+func (s *Service) GetUserBooks(ctx context.Context, userID string, page int, limit int) (UserBooksResult, error) {
+	offset := (page - 1) * limit
+
+	var total int
+	if err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM book_copies bc
+		JOIN book_editions be ON be.id = bc.edition_id
+		JOIN books b ON b.id = be.book_id
+		WHERE bc.owner_id = $1 AND bc.deleted_at IS NULL AND be.deleted_at IS NULL AND b.deleted_at IS NULL
+	`, userID).Scan(&total); err != nil {
+		return UserBooksResult{}, fmt.Errorf("failed to count user books: %w", err)
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT
+			bc.id, bc.reading_status, bc.current_page, bc.started_reading_at, bc.finished_reading_at,
+			bc.owned_by_user, bc.borrowed_from, bc.location, bc.condition, bc.created_at,
+			be.id, be.format, be.language, be.cover_url,
+			b.id, b.title, b.description, b.series_id, b.series_position, b.status, b.deleted_at, b.created_at, b.updated_at
+		FROM book_copies bc
+		JOIN book_editions be ON be.id = bc.edition_id
+		JOIN books b ON b.id = be.book_id
+		WHERE bc.owner_id = $1 AND bc.deleted_at IS NULL AND be.deleted_at IS NULL AND b.deleted_at IS NULL
+		ORDER BY bc.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, userID, limit, offset)
+	if err != nil {
+		return UserBooksResult{}, fmt.Errorf("failed to list user books: %w", err)
+	}
+	defer rows.Close()
+
+	books := make([]UserBook, 0)
+	bookIDs := make([]string, 0)
+	seen := map[string]struct{}{}
+	index := map[string]int{}
+	for rows.Next() {
+		var ub UserBook
+		var language string
+		if err := rows.Scan(
+			&ub.CopyID, &ub.ReadingStatus, &ub.CurrentPage, &ub.StartedReadingAt, &ub.FinishedReadingAt,
+			&ub.OwnedByUser, &ub.BorrowedFrom, &ub.Location, &ub.Condition, &ub.AddedAt,
+			&ub.EditionID, &ub.Format, &language, &ub.CoverURL,
+			&ub.Book.ID, &ub.Book.Title, &ub.Book.Description, &ub.Book.SeriesID, &ub.Book.SeriesPosition,
+			&ub.Book.Status, &ub.Book.DeletedAt, &ub.Book.CreatedAt, &ub.Book.UpdatedAt,
+		); err != nil {
+			return UserBooksResult{}, fmt.Errorf("failed to scan user book: %w", err)
+		}
+		ub.Language = &language
+		ub.Book.Authors = []Author{}
+		ub.Book.Genres = []Genre{}
+		index[ub.Book.ID] = len(books)
+		books = append(books, ub)
+		if _, ok := seen[ub.Book.ID]; !ok {
+			seen[ub.Book.ID] = struct{}{}
+			bookIDs = append(bookIDs, ub.Book.ID)
+		}
+	}
+	if rows.Err() != nil {
+		return UserBooksResult{}, rows.Err()
+	}
+
+	if len(bookIDs) > 0 {
+		aRows, err := s.db.Query(ctx, `
+			SELECT bc.book_id, c.id, c.name, c.status, c.deleted_at, c.created_at, c.updated_at
+			FROM contributors c
+			JOIN book_contributors bc ON bc.contributor_id = c.id
+			WHERE bc.book_id = ANY($1) AND bc.role IN ('author','co_author') AND c.deleted_at IS NULL
+		`, bookIDs)
+		if err == nil {
+			for aRows.Next() {
+				var bookID string
+				var a Author
+				if err := aRows.Scan(&bookID, &a.ID, &a.Name, &a.Status, &a.DeletedAt, &a.CreatedAt, &a.UpdatedAt); err == nil {
+					for i := range books {
+						if books[i].Book.ID == bookID {
+							books[i].Book.Authors = append(books[i].Book.Authors, a)
+						}
+					}
+				}
+			}
+			aRows.Close()
+		}
+	}
+
+	return UserBooksResult{Books: books, Total: total, Page: page, Limit: limit}, nil
 }
 
 func isUniqueViolation(err error) bool {

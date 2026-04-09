@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/AgataPalma/biblios/internal/apictx"
+	"github.com/AgataPalma/biblios/internal/httpx"
 	"net/http"
 )
 
@@ -19,56 +20,54 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	user, err := h.service.GetByID(r.Context(), claims.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get user")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get user")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, user)
+	httpx.WriteJSON(w, http.StatusOK, user)
 }
 
-// UpdateUser PUT /api/v1/users/updateUser
-// Accepts any combination of: email, username, bio, avatar_url.
+// UpdateUser PUT /api/v1/users/me
+// Accepts any combination of: username, bio, avatar_url.
 // At least one field must be provided. All fields are optional and independent —
 // omitting a field (or sending null) leaves it unchanged via COALESCE in SQL.
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	var req struct {
-		Email     *string `json:"email"`
 		Username  *string `json:"username"`
 		Bio       *string `json:"bio"`
 		AvatarUrl *string `json:"avatar_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	// Reject requests that send nothing at all
-	if req.Email == nil && req.Username == nil && req.Bio == nil && req.AvatarUrl == nil {
-		writeError(w, http.StatusUnprocessableEntity, "at least one field is required")
+	if req.Username == nil && req.Bio == nil && req.AvatarUrl == nil {
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "at least one field is required")
 		return
 	}
 
 	// Validate bio length if provided
 	if req.Bio != nil && len(*req.Bio) > 500 {
-		writeError(w, http.StatusUnprocessableEntity, "bio must be 500 characters or fewer")
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "bio must be 500 characters or fewer")
 		return
 	}
 
 	user, err := h.service.UpdateUser(r.Context(), UpdateUserInput{
 		UserID:    claims.UserID,
-		Email:     req.Email,
 		Username:  req.Username,
 		Bio:       req.Bio,
 		AvatarUrl: req.AvatarUrl,
@@ -77,21 +76,65 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err.Error() {
 		case "email already in use", "username already in use":
-			writeError(w, http.StatusConflict, err.Error())
+			httpx.WriteError(w, http.StatusConflict, err.Error())
 		default:
-			writeError(w, http.StatusInternalServerError, "failed to update profile")
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to update profile")
 		}
 		return
 	}
 
-	writeJSON(w, http.StatusOK, user)
+	httpx.WriteJSON(w, http.StatusOK, user)
+}
+
+func (h *Handler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		NewEmail        string `json:"email"`
+		CurrentPassword string `json:"current_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.CurrentPassword == "" {
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "current_password is required")
+		return
+	}
+
+	if isEmailValid(req.NewEmail) == false {
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "new_email is not valid")
+		return
+	}
+
+	err := h.service.UpdateEmail(r.Context(), UpdateEmailInput{
+		UserID:          claims.UserID,
+		CurrentPassword: req.CurrentPassword,
+	})
+	if err != nil {
+		switch err.Error() {
+		case "current password is incorrect":
+			httpx.WriteError(w, http.StatusUnauthorized, err.Error())
+		default:
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to update email")
+		}
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "email updated"})
+
 }
 
 // UpdatePassword PUT /api/v1/users/me/password
 func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -100,16 +143,16 @@ func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		NewPassword     string `json:"new_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if req.CurrentPassword == "" || req.NewPassword == "" {
-		writeError(w, http.StatusUnprocessableEntity, "current_password and new_password are required")
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "current_password and new_password are required")
 		return
 	}
 	if len(req.NewPassword) < 8 {
-		writeError(w, http.StatusUnprocessableEntity, "new password must be at least 8 characters")
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "new password must be at least 8 characters")
 		return
 	}
 
@@ -121,37 +164,37 @@ func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err.Error() {
 		case "current password is incorrect":
-			writeError(w, http.StatusUnauthorized, err.Error())
+			httpx.WriteError(w, http.StatusUnauthorized, err.Error())
 		default:
-			writeError(w, http.StatusInternalServerError, "failed to update password")
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to update password")
 		}
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "password updated"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "password updated"})
 }
 
 // DeleteUser DELETE /api/v1/users/me
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	if err := h.service.DeleteUser(r.Context(), claims.UserID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete account")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete account")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "account deleted"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "account deleted"})
 }
 
 // UpdateTheme PUT /api/v1/users/me/theme
 func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -159,31 +202,18 @@ func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
 		Theme string `json:"theme"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Theme == "" {
-		writeError(w, http.StatusBadRequest, "theme is required")
+		httpx.WriteError(w, http.StatusBadRequest, "theme is required")
 		return
 	}
 
 	if err := h.service.UpdateTheme(r.Context(), claims.UserID, req.Theme); err != nil {
 		if err.Error() == fmt.Sprintf("invalid theme: %s", req.Theme) {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to update theme")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update theme")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "theme updated"})
-}
-
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	err := json.NewEncoder(w).Encode(data)
-	if err != nil {
-		return
-	}
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "theme updated"})
 }

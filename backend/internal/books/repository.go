@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AgataPalma/biblios/internal/isbn"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -70,24 +71,23 @@ func (r *Repository) ApproveSubmissionWithCopy(ctx context.Context, id string, r
 func (r *Repository) FindEditionByISBN(ctx context.Context, isbn string) (*Edition, error) {
 	var edition Edition
 	var query string = `
-        SELECT id, book_id, format, isbn, asin, language, publisher,
+        SELECT id, book_id, format, description, cover_url, isbn10, isbn13, asin, language, publisher,
                edition, published_at, page_count, file_format,
                duration_minutes, audio_format, status, deleted_at, created_at, updated_at
         FROM book_editions
-        WHERE isbn = $1 AND deleted_at IS NULL
+        WHERE (isbn10 = $1 OR isbn13 = $1) AND deleted_at IS NULL
         LIMIT 1
     `
 
 	var err error = r.db.QueryRow(ctx, query, isbn).Scan(
-		&edition.ID, &edition.BookID, &edition.Format,
-		&edition.ISBN, &edition.ASIN, &edition.Language,
+		&edition.ID, &edition.BookID, &edition.Format, &edition.Description, &edition.CoverURL,
+		&edition.ISBN10, &edition.ISBN13, &edition.ASIN, &edition.Language,
 		&edition.Publisher, &edition.Edition, &edition.PublishedAt,
 		&edition.PageCount, &edition.FileFormat, &edition.DurationMinutes,
 		&edition.AudioFormat, &edition.Status, &edition.DeletedAt,
 		&edition.CreatedAt, &edition.UpdatedAt,
 	)
 	if err != nil {
-		// Not found is not an error here
 		return nil, nil
 	}
 
@@ -97,14 +97,14 @@ func (r *Repository) FindEditionByISBN(ctx context.Context, isbn string) (*Editi
 func (r *Repository) FindBookByID(ctx context.Context, bookID string) (*Book, error) {
 	var book Book
 	var query string = `
-        SELECT id, title, status, deleted_at, created_at, updated_at
+        SELECT id, title, description, series_id, series_position, status, deleted_at, created_at, updated_at
         FROM books
         WHERE id = $1 AND deleted_at IS NULL
     `
 
 	var err error = r.db.QueryRow(ctx, query, bookID).Scan(
-		&book.ID, &book.Title,
-		&book.Status, &book.DeletedAt,
+		&book.ID, &book.Title, &book.Description, &book.SeriesID,
+		&book.SeriesPosition, &book.Status, &book.DeletedAt,
 		&book.CreatedAt, &book.UpdatedAt,
 	)
 	if err != nil {
@@ -144,9 +144,9 @@ func (r *Repository) FindBookByTitleAndAuthors(ctx context.Context, title string
 	// For each candidate, compare its authors
 	for _, candidate := range candidates {
 		authorRows, err := r.db.Query(ctx, `
-            SELECT a.name FROM authors a
-            JOIN book_authors ba ON ba.author_id = a.id
-            WHERE ba.book_id = $1 AND a.deleted_at IS NULL
+            SELECT a.name FROM contributors a
+            JOIN book_contributors bc ON bc.contributor_id = a.id
+           WHERE bc.book_id = $1 AND bc.role IN ('author', 'co_author') AND a.deleted_at IS NULL
             ORDER BY a.name
         `, candidate.ID)
 		if err != nil {
@@ -187,6 +187,55 @@ func (r *Repository) FindBookByTitleAndAuthors(ctx context.Context, title string
 		}
 	}
 	return nil, nil
+}
+
+func (r *Repository) SearchBooks(ctx context.Context, query string, page, limit int) ([]Book, int, error) {
+	offset := (page - 1) * limit
+
+	var countQuery string = `
+        SELECT COUNT(*)
+        FROM books b
+        WHERE b.status = 'approved' AND b.deleted_at IS NULL
+          AND (
+              b.search_vector @@ plainto_tsquery('english', $1)
+              OR lower(b.title) LIKE lower('%' || $1 || '%')
+              OR lower(coalesce(b.description, '')) LIKE lower('%' || $1 || '%')
+          )
+    `
+	var total int
+	if err := r.db.QueryRow(ctx, countQuery, query).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count: %w", err)
+	}
+
+	var queryStr string = `
+        SELECT b.id, b.title, b.description, b.series_id, b.series_position, b.status, b.deleted_at, b.created_at, b.updated_at
+        FROM books b
+        WHERE b.status = 'approved' AND b.deleted_at IS NULL
+          AND (
+              b.search_vector @@ plainto_tsquery('english', $1)
+              OR lower(b.title) LIKE lower('%' || $1 || '%')
+              OR lower(coalesce(b.description, '')) LIKE lower('%' || $1 || '%')
+          )
+        ORDER BY b.title ASC
+        LIMIT $2 OFFSET $3
+    `
+	rows, err := r.db.Query(ctx, queryStr, query, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search books: %w", err)
+	}
+	defer rows.Close()
+
+	var books []Book
+	for rows.Next() {
+		var b Book
+		if err := rows.Scan(&b.ID, &b.Title, &b.Description, &b.SeriesID, &b.SeriesPosition, &b.Status, &b.DeletedAt, &b.CreatedAt, &b.UpdatedAt); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan book: %w", err)
+		}
+		b.Authors = []Author{}
+		b.Genres = []Genre{}
+		books = append(books, b)
+	}
+	return books, total, rows.Err()
 }
 
 func (r *Repository) ListPendingSubmissions(ctx context.Context, page int, limit int) ([]Submission, int, error) {
@@ -309,13 +358,23 @@ func (r *Repository) ApproveBookEntities(ctx context.Context, bookID string, edi
 	}
 
 	var authorQuery string = `
-        UPDATE authors SET status = 'approved', updated_at = NOW()
-        WHERE id IN (SELECT author_id FROM book_authors WHERE book_id = $1)
-        AND status = 'pending'
+        UPDATE contributors SET status = 'approved', updated_at = NOW()
+        WHERE id IN (SELECT contributor_id FROM book_contributors WHERE book_id = $1)
+          AND status = 'pending'
     `
 	_, err = r.db.Exec(ctx, authorQuery, bookID)
 	if err != nil {
 		return fmt.Errorf("failed to approve authors: %w", err)
+	}
+
+	var editionContributors string = `
+    UPDATE contributors SET status = 'approved', updated_at = NOW()
+    WHERE id IN (SELECT contributor_id FROM edition_contributors WHERE edition_id = $1)
+    AND status = 'pending'
+`
+	_, err = r.db.Exec(ctx, editionContributors, editionID)
+	if err != nil {
+		return fmt.Errorf("failed to approve edition contributors: %w", err)
 	}
 
 	var genreQuery string = `
@@ -332,7 +391,7 @@ func (r *Repository) ApproveBookEntities(ctx context.Context, bookID string, edi
 }
 
 func (r *Repository) ReplaceBookAuthors(ctx context.Context, bookID string, authorNames []string, autoApprove bool) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM book_authors WHERE book_id = $1`, bookID)
+	_, err := r.db.Exec(ctx, `DELETE FROM book_contributors WHERE book_id = $1 AND role IN ('author', 'co_author')`, bookID)
 	if err != nil {
 		return fmt.Errorf("failed to clear book authors: %w", err)
 	}
@@ -341,19 +400,19 @@ func (r *Repository) ReplaceBookAuthors(ctx context.Context, bookID string, auth
 			continue
 		}
 		var author Author
-		var row pgx.Row = r.db.QueryRow(ctx, `SELECT id, name, status FROM authors WHERE name = $1`, name)
+		var row pgx.Row = r.db.QueryRow(ctx, `SELECT id, name, status FROM contributors WHERE name = $1 AND deleted_at IS NULL LIMIT 1`, name)
 		err = row.Scan(&author.ID, &author.Name, &author.Status)
 		if err != nil {
 			// Not found — create
 			err = r.db.QueryRow(ctx,
-				`INSERT INTO authors (name, status) VALUES ($1, $2) RETURNING id, name, status`,
+				`INSERT INTO contributors (name, status) VALUES ($1, $2) RETURNING id, name, status`,
 				name, map[bool]string{true: "approved", false: "pending"}[autoApprove],
 			).Scan(&author.ID, &author.Name, &author.Status)
 			if err != nil {
 				return fmt.Errorf("failed to create author: %w", err)
 			}
 		}
-		_, err = r.db.Exec(ctx, `INSERT INTO book_authors (book_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, bookID, author.ID)
+		_, err = r.db.Exec(ctx, `INSERT INTO book_contributors (book_id, contributor_id, role) VALUES ($1, $2, 'author') ON CONFLICT DO NOTHING`, bookID, author.ID)
 		if err != nil {
 			return fmt.Errorf("failed to link author: %w", err)
 		}
@@ -391,7 +450,7 @@ func (r *Repository) ReplaceBookGenres(ctx context.Context, bookID string, genre
 }
 
 func (r *Repository) ReplaceEditionTranslators(ctx context.Context, editionID string, names []string) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM book_edition_translators WHERE edition_id = $1`, editionID)
+	_, err := r.db.Exec(ctx, `DELETE FROM edition_contributors WHERE edition_id = $1 AND role = 'translator'`, editionID)
 	if err != nil {
 		return fmt.Errorf("failed to clear edition translators: %w", err)
 	}
@@ -400,14 +459,14 @@ func (r *Repository) ReplaceEditionTranslators(ctx context.Context, editionID st
 			continue
 		}
 		var id string
-		err = r.db.QueryRow(ctx, `SELECT id FROM translators WHERE name = $1`, name).Scan(&id)
+		err = r.db.QueryRow(ctx, `SELECT id FROM contributors WHERE name = $1 AND deleted_at IS NULL LIMIT 1`, name).Scan(&id)
 		if err != nil {
-			err = r.db.QueryRow(ctx, `INSERT INTO translators (name, status) VALUES ($1, 'approved') RETURNING id`, name).Scan(&id)
+			err = r.db.QueryRow(ctx, `INSERT INTO contributors (name, status) VALUES ($1, 'approved') RETURNING id`, name).Scan(&id)
 			if err != nil {
 				return fmt.Errorf("failed to create translator: %w", err)
 			}
 		}
-		_, err = r.db.Exec(ctx, `INSERT INTO book_edition_translators (edition_id, translator_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, editionID, id)
+		_, err = r.db.Exec(ctx, `INSERT INTO edition_contributors (edition_id, contributor_id, role) VALUES ($1, $2, 'translator') ON CONFLICT DO NOTHING`, editionID, id)
 		if err != nil {
 			return fmt.Errorf("failed to link translator: %w", err)
 		}
@@ -423,21 +482,22 @@ func (r *Repository) UpdateEditionDetails(ctx context.Context, editionID string,
             description     = $2,
             cover_url       = $3,
             format          = COALESCE(NULLIF($4, ''), format),
-            isbn            = $5,
-            asin            = $6,
-            language        = COALESCE(NULLIF($7, ''), language),
-            publisher       = $8,
-            edition         = $9,
-            published_at    = $10,
-            page_count      = $11,
-            file_format     = NULLIF($12, ''),
-            duration_minutes = $13,
-            audio_format    = NULLIF($14, ''),
+            isbn10          = $5,
+            isbn13          = $6,
+            asin            = $7,
+            language        = COALESCE(NULLIF($8, ''), language),
+            publisher       = $9,
+            edition         = $10,
+            published_at    = $11,
+            page_count      = $12,
+            file_format     = NULLIF($13, ''),
+            duration_minutes = $14,
+            audio_format    = NULLIF($15, ''),
             updated_at      = NOW()
         WHERE id = $1 AND deleted_at IS NULL
     `
 	tag, err := r.db.Exec(ctx, query,
-		editionID, e.Description, e.CoverURL, e.Format, e.ISBN, e.ASIN, e.Language,
+		editionID, e.Description, e.CoverURL, e.Format, e.ISBN10, e.ISBN13, e.ASIN, e.Language,
 		e.Publisher, e.Edition, e.PublishedAt, e.PageCount,
 		e.FileFormat, e.DurationMinutes, e.AudioFormat,
 	)
@@ -469,14 +529,32 @@ func (r *txRepository) FindOrCreateAuthor(ctx context.Context, name string, auto
 		status = "approved"
 	}
 
-	var query string = `
-        INSERT INTO authors (name, status)
+	// Try to find existing contributor first
+	var fetchQuery string = `
+        SELECT id, name, status, deleted_at, created_at, updated_at
+        FROM contributors
+        WHERE name = $1 AND deleted_at IS NULL
+        LIMIT 1
+    `
+	var err error = r.db.QueryRow(ctx, fetchQuery, name).Scan(
+		&author.ID,
+		&author.Name,
+		&author.Status,
+		&author.DeletedAt,
+		&author.CreatedAt,
+		&author.UpdatedAt,
+	)
+	if err == nil {
+		return author, nil
+	}
+
+	// Not found — insert
+	var insertQuery string = `
+        INSERT INTO contributors (name, status)
         VALUES ($1, $2)
-        ON CONFLICT (name) DO NOTHING
         RETURNING id, name, status, deleted_at, created_at, updated_at
     `
-
-	var err error = r.db.QueryRow(ctx, query, name, status).Scan(
+	err = r.db.QueryRow(ctx, insertQuery, name, status).Scan(
 		&author.ID,
 		&author.Name,
 		&author.Status,
@@ -485,21 +563,7 @@ func (r *txRepository) FindOrCreateAuthor(ctx context.Context, name string, auto
 		&author.UpdatedAt,
 	)
 	if err != nil {
-		var fetchQuery string = `
-            SELECT id, name, status, deleted_at, created_at, updated_at
-            FROM authors WHERE name = $1 AND deleted_at IS NULL
-        `
-		err = r.db.QueryRow(ctx, fetchQuery, name).Scan(
-			&author.ID,
-			&author.Name,
-			&author.Status,
-			&author.DeletedAt,
-			&author.CreatedAt,
-			&author.UpdatedAt,
-		)
-		if err != nil {
-			return Author{}, fmt.Errorf("failed to find author: %w", err)
-		}
+		return Author{}, fmt.Errorf("failed to create author: %w", err)
 	}
 
 	return author, nil
@@ -552,14 +616,17 @@ func (r *txRepository) InsertBook(ctx context.Context, title string, autoApprove
 	}
 
 	var query string = `
-        INSERT INTO books (title, status)
-        VALUES ($1, $2)
-        RETURNING id, title, status, deleted_at, created_at, updated_at
+        INSERT INTO books (title, description, status)
+        VALUES ($1, $2, $3)
+        RETURNING id, title, description, series_id, series_position, status, deleted_at, created_at, updated_at
     `
 
-	var err error = r.db.QueryRow(ctx, query, title, status).Scan(
+	var err error = r.db.QueryRow(ctx, query, title, nil, status).Scan(
 		&book.ID,
 		&book.Title,
+		&book.Description,
+		&book.SeriesID,
+		&book.SeriesPosition,
 		&book.Status,
 		&book.DeletedAt,
 		&book.CreatedAt,
@@ -581,22 +648,22 @@ func (r *txRepository) InsertEdition(ctx context.Context, e Edition, autoApprove
 
 	var query string = `
         INSERT INTO book_editions (
-            book_id, format, description, cover_url, isbn, asin, language, publisher,
+            book_id, format, description, cover_url, isbn10, isbn13, asin, language, publisher,
             edition, published_at, page_count, file_format,
             duration_minutes, audio_format, status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-        RETURNING id, book_id, format, description, cover_url, isbn, asin, language, publisher,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        RETURNING id, book_id, format, description, cover_url, isbn10, isbn13, asin, language, publisher,
             edition, published_at, page_count, file_format,
             duration_minutes, audio_format, status, deleted_at, created_at, updated_at
     `
 
 	var err error = r.db.QueryRow(ctx, query,
-		e.BookID, e.Format, e.Description, e.CoverURL, e.ISBN, e.ASIN, e.Language,
+		e.BookID, e.Format, e.Description, e.CoverURL, e.ISBN10, e.ISBN13, e.ASIN, e.Language,
 		e.Publisher, e.Edition, e.PublishedAt, e.PageCount,
 		e.FileFormat, e.DurationMinutes, e.AudioFormat, status,
 	).Scan(
 		&edition.ID, &edition.BookID, &edition.Format, &edition.Description, &edition.CoverURL,
-		&edition.ISBN, &edition.ASIN, &edition.Language,
+		&edition.ISBN10, &edition.ISBN13, &edition.ASIN, &edition.Language,
 		&edition.Publisher, &edition.Edition, &edition.PublishedAt,
 		&edition.PageCount, &edition.FileFormat, &edition.DurationMinutes,
 		&edition.AudioFormat, &edition.Status, &edition.DeletedAt,
@@ -655,8 +722,7 @@ func (r *txRepository) InsertCopy(ctx context.Context, editionID string, ownerID
 
 func (r *txRepository) LinkBookAuthor(ctx context.Context, bookID string, authorID string) error {
 	var query string = `
-        INSERT INTO book_authors (book_id, author_id)
-        VALUES ($1, $2) ON CONFLICT DO NOTHING
+        INSERT INTO book_contributors (book_id, contributor_id, role) VALUES ($1, $2, 'author') ON CONFLICT DO NOTHING
     `
 	var _, err = r.db.Exec(ctx, query, bookID, authorID)
 	if err != nil {
@@ -684,35 +750,47 @@ func (r *txRepository) FindOrCreateNarrator(ctx context.Context, name string, au
 		status = "approved"
 	}
 
-	var query string = `
-		INSERT INTO narrators (name, status)
+	var fetchQuery string = `
+		SELECT id, name, status, deleted_at, created_at, updated_at
+		FROM contributors
+		WHERE name = $1 AND deleted_at IS NULL
+		LIMIT 1
+	`
+	var err error = r.db.QueryRow(ctx, fetchQuery, name).Scan(
+		&narrator.ID,
+		&narrator.Name,
+		&narrator.Status,
+		&narrator.DeletedAt,
+		&narrator.CreatedAt,
+		&narrator.UpdatedAt,
+	)
+	if err == nil {
+		return narrator, nil
+	}
+
+	var insertQuery string = `
+		INSERT INTO contributors (name, status)
 		VALUES ($1, $2)
-		ON CONFLICT (name) DO NOTHING
 		RETURNING id, name, status, deleted_at, created_at, updated_at
 	`
-	var err error = r.db.QueryRow(ctx, query, name, status).Scan(
-		&narrator.ID, &narrator.Name, &narrator.Status,
-		&narrator.DeletedAt, &narrator.CreatedAt, &narrator.UpdatedAt,
+	err = r.db.QueryRow(ctx, insertQuery, name, status).Scan(
+		&narrator.ID,
+		&narrator.Name,
+		&narrator.Status,
+		&narrator.DeletedAt,
+		&narrator.CreatedAt,
+		&narrator.UpdatedAt,
 	)
 	if err != nil {
-		err = r.db.QueryRow(ctx,
-			`SELECT id, name, status, deleted_at, created_at, updated_at
-			 FROM narrators WHERE name = $1 AND deleted_at IS NULL`, name,
-		).Scan(
-			&narrator.ID, &narrator.Name, &narrator.Status,
-			&narrator.DeletedAt, &narrator.CreatedAt, &narrator.UpdatedAt,
-		)
-		if err != nil {
-			return Narrator{}, fmt.Errorf("failed to find narrator: %w", err)
-		}
+		return Narrator{}, fmt.Errorf("failed to create narrator: %w", err)
 	}
+
 	return narrator, nil
 }
 
 func (r *txRepository) LinkEditionNarrator(ctx context.Context, editionID string, narratorID string) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO book_edition_narrators (edition_id, narrator_id)
-		 VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		`INSERT INTO edition_contributors (edition_id, contributor_id, role) VALUES ($1, $2, 'narrator') ON CONFLICT DO NOTHING`,
 		editionID, narratorID,
 	)
 	if err != nil {
@@ -728,35 +806,47 @@ func (r *txRepository) FindOrCreateTranslator(ctx context.Context, name string, 
 		status = "approved"
 	}
 
-	var query string = `
-		INSERT INTO translators (name, status)
+	var fetchQuery string = `
+		SELECT id, name, status, deleted_at, created_at, updated_at
+		FROM contributors
+		WHERE name = $1 AND deleted_at IS NULL
+		LIMIT 1
+	`
+	var err error = r.db.QueryRow(ctx, fetchQuery, name).Scan(
+		&translator.ID,
+		&translator.Name,
+		&translator.Status,
+		&translator.DeletedAt,
+		&translator.CreatedAt,
+		&translator.UpdatedAt,
+	)
+	if err == nil {
+		return translator, nil
+	}
+
+	var insertQuery string = `
+		INSERT INTO contributors (name, status)
 		VALUES ($1, $2)
-		ON CONFLICT (name) DO NOTHING
 		RETURNING id, name, status, deleted_at, created_at, updated_at
 	`
-	var err error = r.db.QueryRow(ctx, query, name, status).Scan(
-		&translator.ID, &translator.Name, &translator.Status,
-		&translator.DeletedAt, &translator.CreatedAt, &translator.UpdatedAt,
+	err = r.db.QueryRow(ctx, insertQuery, name, status).Scan(
+		&translator.ID,
+		&translator.Name,
+		&translator.Status,
+		&translator.DeletedAt,
+		&translator.CreatedAt,
+		&translator.UpdatedAt,
 	)
 	if err != nil {
-		err = r.db.QueryRow(ctx,
-			`SELECT id, name, status, deleted_at, created_at, updated_at
-			 FROM translators WHERE name = $1 AND deleted_at IS NULL`, name,
-		).Scan(
-			&translator.ID, &translator.Name, &translator.Status,
-			&translator.DeletedAt, &translator.CreatedAt, &translator.UpdatedAt,
-		)
-		if err != nil {
-			return Translator{}, fmt.Errorf("failed to find translator: %w", err)
-		}
+		return Translator{}, fmt.Errorf("failed to create translator: %w", err)
 	}
+
 	return translator, nil
 }
 
 func (r *txRepository) LinkEditionTranslator(ctx context.Context, editionID string, translatorID string) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO book_edition_translators (edition_id, translator_id)
-		 VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		`INSERT INTO edition_contributors (edition_id, contributor_id, role) VALUES ($1, $2, 'translator') ON CONFLICT DO NOTHING`,
 		editionID, translatorID,
 	)
 	if err != nil {
@@ -920,10 +1010,10 @@ func (r *Repository) ListApprovedBooks(ctx context.Context, page int, limit int,
 
 		// Authors
 		aRows, aErr := r.db.Query(ctx, `
-			SELECT ba.book_id, a.id, a.name, a.status, a.deleted_at, a.created_at, a.updated_at
-			FROM authors a
-			JOIN book_authors ba ON ba.author_id = a.id
-			WHERE ba.book_id = ANY($1) AND a.deleted_at IS NULL
+			SELECT bc.book_id, a.id, a.name, a.status, a.deleted_at, a.created_at, a.updated_at
+			FROM contributors a
+			JOIN book_contributors bc ON bc.contributor_id = a.id
+			WHERE bc.book_id = ANY($1) AND bc.role IN ('author', 'co_author') AND a.deleted_at IS NULL
 		`, ids)
 		if aErr == nil {
 			for aRows.Next() {
@@ -965,15 +1055,15 @@ func (r *Repository) ListApprovedBooks(ctx context.Context, page int, limit int,
 func (r *Repository) FindEditionByID(ctx context.Context, id string) (*Edition, error) {
 	var edition Edition
 	var query string = `
-		SELECT id, book_id, format, isbn, asin, language, publisher,
+		SELECT id, book_id, format, description, cover_url, isbn10, isbn13, asin, language, publisher,
 		       edition, published_at, page_count, file_format,
 		       duration_minutes, audio_format, status, deleted_at, created_at, updated_at
 		FROM book_editions
 		WHERE id = $1 AND deleted_at IS NULL
 	`
 	var err error = r.db.QueryRow(ctx, query, id).Scan(
-		&edition.ID, &edition.BookID, &edition.Format,
-		&edition.ISBN, &edition.ASIN, &edition.Language,
+		&edition.ID, &edition.BookID, &edition.Format, &edition.Description, &edition.CoverURL,
+		&edition.ISBN10, &edition.ISBN13, &edition.ASIN, &edition.Language,
 		&edition.Publisher, &edition.Edition, &edition.PublishedAt,
 		&edition.PageCount, &edition.FileFormat, &edition.DurationMinutes,
 		&edition.AudioFormat, &edition.Status, &edition.DeletedAt,
@@ -989,24 +1079,47 @@ func (r *Repository) FindBookWithDetails(ctx context.Context, id string) (*Book,
 	// Get book
 	var book Book
 	var query string = `
-        SELECT id, title, status, deleted_at, created_at, updated_at
-        FROM books
-        WHERE id = $1 AND deleted_at IS NULL
+        SELECT id, title, description, series_id, series_position, status, deleted_at, created_at, updated_at
+FROM books WHERE id = $1 AND deleted_at IS NULL
     `
 	var err error = r.db.QueryRow(ctx, query, id).Scan(
-		&book.ID, &book.Title,
+		&book.ID, &book.Title, &book.Description, &book.SeriesID, &book.SeriesPosition,
 		&book.Status, &book.DeletedAt, &book.CreatedAt, &book.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("book not found: %w", err)
 	}
 
+	// Load series if present
+	if book.SeriesID != nil {
+		var series Series
+		var seriesQuery string = `
+            SELECT id, name, description, status, deleted_at, created_at, updated_at
+            FROM series
+            WHERE id = $1 AND deleted_at IS NULL
+        `
+		err = r.db.QueryRow(ctx, seriesQuery, *book.SeriesID).Scan(
+			&series.ID,
+			&series.Name,
+			&series.Description,
+			&series.Status,
+			&series.DeletedAt,
+			&series.CreatedAt,
+			&series.UpdatedAt,
+		)
+		if err == nil {
+			book.Series = &series
+		}
+	}
+
 	// Get authors
 	var authorQuery string = `
         SELECT a.id, a.name, a.status, a.deleted_at, a.created_at, a.updated_at
-        FROM authors a
-        JOIN book_authors ba ON ba.author_id = a.id
-        WHERE ba.book_id = $1 AND a.deleted_at IS NULL
+		FROM contributors a
+		JOIN book_contributors bc ON bc.contributor_id = a.id
+		WHERE bc.book_id = $1
+ 		 AND bc.role IN ('author', 'co_author')
+  		 AND a.deleted_at IS NULL
     `
 	var authorRows pgx.Rows
 	authorRows, err = r.db.Query(ctx, authorQuery, id)
@@ -1052,7 +1165,7 @@ func (r *Repository) FindBookWithDetails(ctx context.Context, id string) (*Book,
 
 	// Get editions
 	var editionQuery string = `
-        SELECT id, book_id, format, description, cover_url, isbn, asin, language, publisher,
+        SELECT id, book_id, format, description, cover_url, isbn10, isbn13, asin, language, publisher,
                edition, published_at, page_count, file_format,
                duration_minutes, audio_format, status, deleted_at, created_at, updated_at
         FROM book_editions
@@ -1069,7 +1182,7 @@ func (r *Repository) FindBookWithDetails(ctx context.Context, id string) (*Book,
 	for editionRows.Next() {
 		var e Edition
 		err = editionRows.Scan(
-			&e.ID, &e.BookID, &e.Format, &e.Description, &e.CoverURL, &e.ISBN, &e.ASIN,
+			&e.ID, &e.BookID, &e.Format, &e.Description, &e.CoverURL, &e.ISBN10, &e.ISBN13, &e.ASIN,
 			&e.Language, &e.Publisher, &e.Edition, &e.PublishedAt,
 			&e.PageCount, &e.FileFormat, &e.DurationMinutes,
 			&e.AudioFormat, &e.Status, &e.DeletedAt, &e.CreatedAt, &e.UpdatedAt,
@@ -1079,12 +1192,10 @@ func (r *Repository) FindBookWithDetails(ctx context.Context, id string) (*Book,
 		}
 
 		// Load narrators for this edition
-		narratorRows, nErr := r.db.Query(ctx, `
-			SELECT n.id, n.name, n.status, n.deleted_at, n.created_at, n.updated_at
-			FROM narrators n
-			JOIN book_edition_narrators ben ON ben.narrator_id = n.id
-			WHERE ben.edition_id = $1 AND n.deleted_at IS NULL
-		`, e.ID)
+		narratorRows, nErr := r.db.Query(ctx, `SELECT c.id, c.name, c.status, c.deleted_at, c.created_at, c.updated_at
+			FROM contributors c
+			JOIN edition_contributors ec ON ec.contributor_id = c.id
+			WHERE ec.edition_id = $1 AND ec.role = 'narrator' AND c.deleted_at IS NULL`, e.ID)
 		if nErr == nil {
 			for narratorRows.Next() {
 				var n Narrator
@@ -1100,10 +1211,10 @@ func (r *Repository) FindBookWithDetails(ctx context.Context, id string) (*Book,
 
 		// Load translators for this edition
 		translatorRows, tErr := r.db.Query(ctx, `
-			SELECT t.id, t.name, t.status, t.deleted_at, t.created_at, t.updated_at
-			FROM translators t
-			JOIN book_edition_translators bet ON bet.translator_id = t.id
-			WHERE bet.edition_id = $1 AND t.deleted_at IS NULL
+			SELECT c.id, c.name, c.status, c.deleted_at, c.created_at, c.updated_at
+			FROM contributors c
+			JOIN edition_contributors ec ON ec.contributor_id = c.id
+			WHERE ec.edition_id = $1 AND ec.role = 'translator' AND c.deleted_at IS NULL
 		`, e.ID)
 		if tErr == nil {
 			for translatorRows.Next() {
@@ -1134,16 +1245,17 @@ func (r *Repository) FindBookWithDetails(ctx context.Context, id string) (*Book,
 	return &book, nil
 }
 
-func (r *Repository) UpdateBook(ctx context.Context, id string, title *string) error {
+func (r *Repository) UpdateBook(ctx context.Context, id string, title *string, description *string) error {
 	var query string = `
         UPDATE books
-        SET title      = COALESCE($2, title),
-            updated_at = NOW()
+        SET title       = COALESCE($2, title),
+            description = COALESCE($3, description),
+            updated_at  = NOW()
         WHERE id = $1 AND deleted_at IS NULL
     `
 	var tag pgconn.CommandTag
 	var err error
-	tag, err = r.db.Exec(ctx, query, id, title)
+	tag, err = r.db.Exec(ctx, query, id, title, description)
 	if err != nil {
 		return fmt.Errorf("failed to update book: %w", err)
 	}
@@ -1232,151 +1344,36 @@ func (r *Repository) DeleteEdition(ctx context.Context, editionID string) error 
 	return nil
 }
 
-func (r *Repository) FindUserBooksWithCopies(ctx context.Context, userID string, page int, limit int) ([]UserBook, int, error) {
-	offset := (page - 1) * limit
-
-	countQuery := `
-        SELECT COUNT(DISTINCT bc.id)
-        FROM book_copies bc
-        JOIN book_editions be ON be.id = bc.edition_id
-        JOIN books b ON b.id = be.book_id
-        WHERE bc.owner_id = $1 AND bc.deleted_at IS NULL AND b.deleted_at IS NULL
-    `
-	var total int
-	if err := r.db.QueryRow(ctx, countQuery, userID).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("failed to count: %w", err)
+func (r *txRepository) FindOrCreateSeries(ctx context.Context, name string, autoApprove bool) (Series, error) {
+	var series Series
+	status := "pending"
+	if autoApprove {
+		status = "approved"
 	}
-
-	query := `
-        SELECT
-            bc.id,
-            bc.reading_status,
-            bc.current_page,
-            bc.started_reading_at,
-            bc.finished_reading_at,
-            bc.owned_by_user,
-            bc.borrowed_from,
-            bc.location,
-            bc.condition,
-            bc.created_at,
-
-            b.id,
-            b.title,
-            b.status,
-            b.deleted_at,
-            b.created_at,
-            b.updated_at,
-
-            be.id,
-            be.format,
-            be.language,
-            be.cover_url,
-
-            a.id,
-            a.name,
-            a.status,
-            a.deleted_at,
-            a.created_at,
-            a.updated_at
-        FROM book_copies bc
-        JOIN book_editions be ON be.id = bc.edition_id
-        JOIN books b ON b.id = be.book_id
-        LEFT JOIN book_authors ba ON ba.book_id = b.id
-        LEFT JOIN authors a ON a.id = ba.author_id
-        WHERE bc.owner_id = $1
-          AND bc.deleted_at IS NULL
-          AND b.deleted_at IS NULL
-        ORDER BY bc.created_at DESC
-        LIMIT $2 OFFSET $3
-    `
-	rows, err := r.db.Query(ctx, query, userID, limit, offset)
+	err := r.db.QueryRow(ctx,
+		`SELECT id, name, status, deleted_at, created_at, updated_at
+         FROM series WHERE name = $1 AND deleted_at IS NULL LIMIT 1`, name,
+	).Scan(&series.ID, &series.Name, &series.Status, &series.DeletedAt, &series.CreatedAt, &series.UpdatedAt)
+	if err == nil {
+		return series, nil
+	}
+	err = r.db.QueryRow(ctx,
+		`INSERT INTO series (name, status) VALUES ($1, $2)
+         RETURNING id, name, status, deleted_at, created_at, updated_at`,
+		name, status,
+	).Scan(&series.ID, &series.Name, &series.Status, &series.DeletedAt, &series.CreatedAt, &series.UpdatedAt)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to query: %w", err)
+		return Series{}, fmt.Errorf("failed to create series: %w", err)
 	}
-	defer rows.Close()
+	return series, nil
+}
 
-	type rowData struct {
-		userBook        UserBook
-		authorID        *string
-		authorName      *string
-		authorStatus    *string
-		authorDeletedAt *time.Time
-		authorCreatedAt *time.Time
-		authorUpdatedAt *time.Time
-	}
-
-	userBookMap := make(map[string]*UserBook)
-	order := make([]string, 0)
-
-	for rows.Next() {
-		var rd rowData
-
-		err = rows.Scan(
-			&rd.userBook.CopyID,
-			&rd.userBook.ReadingStatus,
-			&rd.userBook.CurrentPage,
-			&rd.userBook.StartedReadingAt,
-			&rd.userBook.FinishedReadingAt,
-			&rd.userBook.OwnedByUser,
-			&rd.userBook.BorrowedFrom,
-			&rd.userBook.Location,
-			&rd.userBook.Condition,
-			&rd.userBook.AddedAt,
-
-			&rd.userBook.Book.ID,
-			&rd.userBook.Book.Title,
-			&rd.userBook.Book.Status,
-			&rd.userBook.Book.DeletedAt,
-			&rd.userBook.Book.CreatedAt,
-			&rd.userBook.Book.UpdatedAt,
-
-			&rd.userBook.EditionID,
-			&rd.userBook.Format,
-			&rd.userBook.Language,
-			&rd.userBook.CoverURL,
-
-			&rd.authorID,
-			&rd.authorName,
-			&rd.authorStatus,
-			&rd.authorDeletedAt,
-			&rd.authorCreatedAt,
-			&rd.authorUpdatedAt,
-		)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to scan: %w", err)
-		}
-
-		existing, ok := userBookMap[rd.userBook.CopyID]
-		if !ok {
-			rd.userBook.Book.Authors = []Author{}
-			copyUb := rd.userBook
-			userBookMap[rd.userBook.CopyID] = &copyUb
-			order = append(order, rd.userBook.CopyID)
-			existing = &copyUb
-		}
-
-		if rd.authorID != nil && rd.authorName != nil {
-			existing.Book.Authors = append(existing.Book.Authors, Author{
-				ID:        derefString(rd.authorID),
-				Name:      derefString(rd.authorName),
-				Status:    derefString(rd.authorStatus),
-				DeletedAt: rd.authorDeletedAt,
-				CreatedAt: derefTime(rd.authorCreatedAt),
-				UpdatedAt: derefTime(rd.authorUpdatedAt),
-			})
-		}
-	}
-
-	if rows.Err() != nil {
-		return nil, 0, fmt.Errorf("row iteration failed: %w", rows.Err())
-	}
-
-	userBooks := make([]UserBook, 0, len(order))
-	for _, id := range order {
-		userBooks = append(userBooks, *userBookMap[id])
-	}
-
-	return userBooks, total, nil
+func (r *txRepository) UpdateBookSeries(ctx context.Context, bookID, seriesID string, position *float64) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE books SET series_id = $2, series_position = $3, updated_at = NOW() WHERE id = $1`,
+		bookID, seriesID, position,
+	)
+	return err
 }
 
 func derefString(s *string) string {
@@ -1393,63 +1390,13 @@ func derefTime(t *time.Time) time.Time {
 	return *t
 }
 
-func (r *Repository) FindUserBooks(ctx context.Context, userID string, page int, limit int) ([]Book, int, error) {
-	var offset int = (page - 1) * limit
-
-	var countQuery string = `
-        SELECT COUNT(DISTINCT b.id)
-        FROM books b
-        JOIN book_editions be ON be.book_id = b.id
-        JOIN book_copies bc ON bc.edition_id = be.id
-        WHERE bc.owner_id = $1 AND bc.deleted_at IS NULL AND b.deleted_at IS NULL
-    `
-	var total int
-	var err error = r.db.QueryRow(ctx, countQuery, userID).Scan(&total)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to count user books: %w", err)
-	}
-
-	var query string = `
-        SELECT DISTINCT b.id, b.title, b.status,
-               b.deleted_at, b.created_at, b.updated_at
-        FROM books b
-        JOIN book_editions be ON be.book_id = b.id
-        JOIN book_copies bc ON bc.edition_id = be.id
-        WHERE bc.owner_id = $1 AND bc.deleted_at IS NULL AND b.deleted_at IS NULL
-        ORDER BY b.title ASC
-        LIMIT $2 OFFSET $3
-    `
-	var rows pgx.Rows
-	rows, err = r.db.Query(ctx, query, userID, limit, offset)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to list user books: %w", err)
-	}
-	defer rows.Close()
-
-	var bookList []Book
-	for rows.Next() {
-		var b Book
-		err = rows.Scan(
-			&b.ID, &b.Title,
-			&b.Status, &b.DeletedAt, &b.CreatedAt, &b.UpdatedAt,
-		)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to scan book: %w", err)
-		}
-		bookList = append(bookList, b)
-	}
-
-	return bookList, total, nil
-}
-
 func (r *Repository) FindBooksWithoutCovers(ctx context.Context) ([]BookWithDetails, error) {
 	query := `
         SELECT DISTINCT b.id, b.title
         FROM books b
         JOIN book_editions e ON e.book_id = b.id
         WHERE (e.cover_url IS NULL OR e.cover_url = '')
-          AND e.isbn IS NOT NULL
-          AND e.isbn != ''
+          AND ((e.isbn13 IS NOT NULL AND e.isbn13 != '') OR (e.isbn10 IS NOT NULL AND e.isbn10 != ''))
           AND b.deleted_at IS NULL
           AND e.deleted_at IS NULL
     `
@@ -1482,7 +1429,7 @@ func (r *Repository) UpdateEditionCoverURL(ctx context.Context, editionID, cover
 
 func (r *Repository) findEditionsByBookID(ctx context.Context, bookID string) ([]Edition, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT id, book_id, isbn, format, language
+		`SELECT id, book_id, isbn10, isbn13, format, language
          FROM book_editions WHERE book_id = $1 AND deleted_at IS NULL`,
 		bookID,
 	)
@@ -1494,43 +1441,12 @@ func (r *Repository) findEditionsByBookID(ctx context.Context, bookID string) ([
 	var editions []Edition
 	for rows.Next() {
 		var e Edition
-		if err := rows.Scan(&e.ID, &e.BookID, &e.ISBN, &e.Format, &e.Language); err != nil {
+		if err := rows.Scan(&e.ID, &e.BookID, &e.ISBN10, &e.ISBN13, &e.Format, &e.Language); err != nil {
 			continue
 		}
 		editions = append(editions, e)
 	}
 	return editions, nil
-}
-
-func (r *Repository) UpdateReadingStatus(ctx context.Context, copyID, userID string, input UpdateCopyInput) error {
-	tag, err := r.db.Exec(ctx,
-		`UPDATE book_copies SET
-            reading_status      = $1,
-            current_page        = $2,
-            started_reading_at  = CASE WHEN $3::text = '' THEN NULL ELSE $3::timestamptz END,
-            finished_reading_at = CASE WHEN $4::text = '' THEN NULL ELSE $4::timestamptz END,
-            owned_by_user       = COALESCE($5, owned_by_user),
-            borrowed_from       = $6,
-            location            = COALESCE($7, location),
-            updated_at          = NOW()
-         WHERE id = $8 AND owner_id = $9 AND deleted_at IS NULL`,
-		input.Status,
-		input.CurrentPage,
-		nullableString(input.StartedReadingAt),
-		nullableString(input.FinishedReadingAt),
-		input.OwnedByUser,
-		input.BorrowedFrom,
-		input.Location,
-		copyID,
-		userID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update copy: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("copy not found")
-	}
-	return nil
 }
 
 // nullableString returns the string value or nil if the pointer is nil or empty.
@@ -1539,19 +1455,4 @@ func nullableString(s *string) *string {
 		return nil
 	}
 	return s
-}
-
-func (r *Repository) RemoveCopy(ctx context.Context, copyID, userID string) error {
-	tag, err := r.db.Exec(ctx,
-		`UPDATE book_copies SET deleted_at = NOW(), updated_at = NOW()
-         WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL`,
-		copyID, userID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to remove copy: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("copy not found")
-	}
-	return nil
 }

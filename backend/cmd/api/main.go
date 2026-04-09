@@ -9,6 +9,7 @@ import (
 	"github.com/AgataPalma/biblios/internal/books"
 	"github.com/AgataPalma/biblios/internal/config"
 	"github.com/AgataPalma/biblios/internal/database"
+	"github.com/AgataPalma/biblios/internal/library"
 	"github.com/AgataPalma/biblios/internal/lookup"
 	"github.com/AgataPalma/biblios/internal/middleware"
 	"github.com/AgataPalma/biblios/internal/moderation"
@@ -89,7 +90,7 @@ func main() {
 	slog.Info("redis connected")
 
 	// Token store
-	var tStore *tokenstore.Store = tokenstore.NewStore(rdb)
+	var tStore = tokenstore.NewStore(rdb)
 
 	// Repositories and services
 	var userRepo *users.Repository = users.NewRepository(db)
@@ -101,6 +102,10 @@ func main() {
 	// Books
 	var bookRepo *books.Repository = books.NewRepository(db)
 	var bookService *books.Service = books.NewService(bookRepo, db)
+
+	libraryRepo := library.NewRepository(db)
+	libraryService := library.NewService(libraryRepo, bookRepo, db) // if you inject edition/book lookup via booksRepo
+	libraryHandler := library.NewHandler(libraryService)
 
 	// Moderation
 	var moderationService *moderation.Service = moderation.NewService(bookRepo)
@@ -151,6 +156,7 @@ func main() {
 			//User
 			r.Put("/users/me/theme", userHandler.UpdateTheme)       //UpdateTheme
 			r.Put("/users/me", userHandler.UpdateUser)              //UpdateUser
+			r.Put("/users/me/email", userHandler.UpdateEmail)       //UpdateEmail
 			r.Delete("/users/me", userHandler.DeleteUser)           //DeleteUser
 			r.Put("/users/me/password", userHandler.UpdatePassword) //UpdatePassword
 
@@ -159,12 +165,14 @@ func main() {
 			r.Get("/books/lookup", lookupHandler.Lookup)
 			r.Get("/books/check", bookHandler.CheckDuplicate)
 			r.Post("/books", bookHandler.SubmitBook)
-			r.Post("/books/copies", bookHandler.AddCopy)
 			r.Get("/users/me/books", bookHandler.GetMyBooks)
-			r.Get("/users/me/library", bookHandler.GetMyLibrary)
-			r.Put("/books/copies/{id}/status", bookHandler.UpdateReadingStatus)
-			r.Delete("/books/copies/{id}", bookHandler.RemoveCopy)
 			r.Get("/books/{id}", bookHandler.GetBook)
+			r.Post("/books/copies", bookHandler.AddCopy)
+
+			// library routes now point to libraryHandler:
+			r.Get("/users/me/library", libraryHandler.GetMyLibrary)
+			r.Put("/books/copies/{id}/status", libraryHandler.UpdateReadingStatus)
+			r.Delete("/books/copies/{id}", libraryHandler.RemoveCopy)
 
 			// Reviews
 			r.Get("/books/{id}/reviews", reviewHandler.GetBookReviews)

@@ -1,0 +1,30 @@
+-- 000036_fix_search_vector_and_gaps.down.sql
+
+DROP INDEX IF EXISTS idx_book_awards_award;
+DROP INDEX IF EXISTS idx_contributor_awards_award;
+DROP INDEX IF EXISTS idx_review_likes_user;
+DROP INDEX IF EXISTS idx_submissions_contributor;
+
+ALTER TABLE submissions
+    DROP COLUMN IF EXISTS contributor_id;
+
+DROP TRIGGER IF EXISTS books_search_vector_update ON books;
+
+-- Restore the original broken function (as it was before migration 036)
+CREATE OR REPLACE FUNCTION public.books_search_vector_trigger()
+    RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_authors TEXT;
+BEGIN
+    SELECT string_agg(a.name, ' ')
+    INTO v_authors
+    FROM book_authors ba
+             JOIN authors a ON a.id = ba.author_id
+    WHERE ba.book_id = NEW.id;
+
+    NEW.search_vector := books_search_vector(NEW.title, NULL, v_authors);
+    RETURN NEW;
+END;
+$$;

@@ -92,24 +92,34 @@ func (r *Repository) FindByID(ctx context.Context, id string) (User, error) {
 
 // UpdateUser updates any combination of email, username, bio, and avatar_url.
 // Passing nil for a field leaves it unchanged (COALESCE pattern).
-func (r *Repository) UpdateUser(ctx context.Context, userID string, email, username, bio, avatarUrl *string) (User, error) {
+func (r *Repository) UpdateUser(ctx context.Context, userID string, username, bio, avatarUrl *string) (User, error) {
 	var user User
 	var query = `
         UPDATE users
         SET
-            email      = COALESCE($2, email),
-            username   = COALESCE($3, username),
-            bio        = COALESCE($4, bio),
-            avatar_url = COALESCE($5, avatar_url),
+            username   = COALESCE($2, username),
+            bio        = COALESCE($3, bio),
+            avatar_url = COALESCE($4, avatar_url),
             updated_at = NOW()
         WHERE id = $1 AND deleted_at IS NULL
         RETURNING id, email, username, password_hash, role, is_admin, theme, bio, avatar_url, deleted_at, created_at, updated_at`
 
-	var err = scanUser(r.db.QueryRow(ctx, query, userID, email, username, bio, avatarUrl), &user)
+	var err = scanUser(r.db.QueryRow(ctx, query, userID, username, bio, avatarUrl), &user)
 	if err != nil {
 		return User{}, fmt.Errorf("failed to update profile: %w", err)
 	}
 	return user, nil
+}
+
+func (r *Repository) UpdateEmail(ctx context.Context, userID string, newEmail string) error {
+	var _, err = r.db.Exec(ctx, `
+		UPDATE users SET email = $2, updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL
+	`, userID, newEmail)
+	if err != nil {
+		return fmt.Errorf("failed to update email: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error {

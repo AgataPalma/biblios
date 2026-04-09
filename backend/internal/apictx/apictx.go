@@ -19,3 +19,7 @@ type Claims struct {
 	Role   Role   `json:"role"`
 	jwt.RegisteredClaims
 }
+
+type ErrorResponse struct {
+	Error string `json:"error" example:"invalid credentials"`
+}

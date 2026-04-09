@@ -31,9 +31,9 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
     { label: 'Dashboard',   path: '/',            icon: '⊞' },
-    { label: 'Books',       path: '/books',        icon: '📖' },
+    { label: 'Biblios Catalogue',       path: '/books',        icon: '📖' },
     { label: 'My Library',  path: '/library',      icon: '🗄️' },
-    { label: 'Submit Book', path: '/books/add',    icon: '➕' },
+    { label: 'Add Book', path: '/books/add',    icon: '➕' },
     { label: 'Moderation',  path: '/moderation',   icon: '🛡️', modOnly: true },
 ]
 

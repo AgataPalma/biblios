@@ -23,7 +23,7 @@ export async function updateProfile(data: UpdateProfilePayload): Promise<User> {
 }
 
 export async function updateEmail(data: UpdateEmailPayload): Promise<User> {
-    const response = await apiClient.put<User>('/users/me', data)
+    const response = await apiClient.put<User>('/users/me/email', data)
     return response.data
 }
 

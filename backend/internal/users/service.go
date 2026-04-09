@@ -13,12 +13,13 @@ type userRepository interface {
 	ExistsByEmail(ctx context.Context, email string) (bool, error)
 	ExistsByUsername(ctx context.Context, username string) (bool, error)
 	CreateUser(ctx context.Context, email, username, passwordHash string) (User, error)
-	UpdateUser(ctx context.Context, userID string, email, username, bio, avatarUrl *string) (User, error)
+	UpdateUser(ctx context.Context, userID string, username, bio, avatarUrl *string) (User, error)
 	UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error
 	SoftDeleteWithCascade(ctx context.Context, userID string) error
 	FindByEmail(ctx context.Context, email string) (User, error)
 	FindByID(ctx context.Context, id string) (User, error)
 	UpdateTheme(ctx context.Context, userID string, theme string) error
+	UpdateEmail(ctx context.Context, userID string, newEmail string) error
 }
 
 type Service struct {
@@ -48,6 +49,12 @@ type UpdatePasswordInput struct {
 	UserID          string
 	CurrentPassword string
 	NewPassword     string
+}
+
+type UpdateEmailInput struct {
+	UserID          string
+	NewEmail        string
+	CurrentPassword string
 }
 
 func NewService(repo *Repository) *Service {
@@ -119,7 +126,7 @@ func (s *Service) UpdateUser(ctx context.Context, input UpdateUserInput) (User, 
 	var user User
 	var err error
 
-	user, err = s.repo.UpdateUser(ctx, input.UserID, input.Email, input.Username, input.Bio, input.AvatarUrl)
+	user, err = s.repo.UpdateUser(ctx, input.UserID, input.Username, input.Bio, input.AvatarUrl)
 	if err != nil {
 		if isUniqueViolation(err, "users_email_key") {
 			return User{}, fmt.Errorf("email already in use")
@@ -131,6 +138,23 @@ func (s *Service) UpdateUser(ctx context.Context, input UpdateUserInput) (User, 
 	}
 
 	return user, nil
+}
+
+func (s *Service) UpdateEmail(ctx context.Context, input UpdateEmailInput) error {
+	var user User
+	var err error
+
+	user, err = s.repo.FindByID(ctx, input.UserID)
+	if err != nil {
+		return fmt.Errorf("error validating user: %w", err)
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.CurrentPassword))
+	if err != nil {
+		return fmt.Errorf("password is incorrect")
+	}
+
+	return s.repo.UpdateEmail(ctx, input.UserID, input.NewEmail)
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, input UpdatePasswordInput) error {
