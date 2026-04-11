@@ -344,6 +344,7 @@ export default function AddBookPage() {
     const [doneMessage, setDoneMessage]   = useState('')
 
     const [manualTitle,       setManualTitle]       = useState('')
+    const [manualOriginalTitle, setManualOriginalTitle] = useState('')
     const [manualAuthors,     setManualAuthors]     = useState<string[]>([])
     const [manualGenres,      setManualGenres]      = useState<string[]>([])
     const [manualTranslators, setManualTranslators] = useState<string[]>([])
@@ -358,6 +359,7 @@ export default function AddBookPage() {
     const [manualDesc,        setManualDesc]        = useState('')
     const [manualCoverUrl,    setManualCoverUrl]    = useState('')
     const [manualError,       setManualError]       = useState('')
+    const [editionOriginalTitle, setEditionOriginalTitle] = useState('')
 
     // Reading state + ownership — shared across all add paths, only relevant when !catalogueOnly
     const [addReadingStatus,  setAddReadingStatus]  = useState<'want_to_read'|'reading'|'read'>('want_to_read')
@@ -417,6 +419,7 @@ export default function AddBookPage() {
             }
             const book = result as BookLookup
             setLookupResult(book)
+            setEditionOriginalTitle('')
             setLanguage(book.language ?? 'en')
             setStep('preview')
         },
@@ -471,6 +474,8 @@ export default function AddBookPage() {
                 genres:  lookupResult.categories ?? [],
                 catalogue_only: catalogueOnly,
                 edition: {
+                    title:            lookupResult.title || undefined,
+                    original_title:   editionOriginalTitle.trim() || undefined,
                     format:           dbFormat,
                     description:      lookupResult.description,
                     cover_url:        lookupResult.cover_url,
@@ -503,6 +508,8 @@ export default function AddBookPage() {
                 genres:  manualGenres,
                 catalogue_only: catalogueOnly,
                 edition: {
+                    title:            manualTitle.trim() || undefined,
+                    original_title:   manualOriginalTitle.trim() || undefined,
                     format:           mode === 'audiobook' ? 'audiobook' : format,
                     description:      manualDesc || undefined,
                     cover_url:        manualCoverUrl || undefined,
@@ -557,10 +564,11 @@ export default function AddBookPage() {
         setCatalogueOnly(false)
         setIsbn(''); setTitleQuery(''); setAuthorQuery(''); setSearchError('')
         setLookupResult(null); setExistingEdition(null)
+        setEditionOriginalTitle('')
         setFormat('paperback'); setCondition('good')
         setNarrator(''); setDuration('')
         setLanguage('en'); setDetailsError(''); setDoneMessage('')
-        setManualTitle(''); setManualAuthors([]); setManualGenres([]); setManualTranslators([]); setManualIsbn('')
+        setManualTitle(''); setManualOriginalTitle(''); setManualAuthors([]); setManualGenres([]); setManualTranslators([]); setManualIsbn('')
         setManualAsin(''); setManualPublisher(''); setManualEditionLabel(''); setManualPublishedAt('')
         setManualPages(''); setManualFileFormat(''); setManualAudioFormat('')
         setManualDesc(''); setManualCoverUrl(''); setManualError('')
@@ -1127,6 +1135,10 @@ export default function AddBookPage() {
                             <TextInput value={manualTitle} onChange={setManualTitle} placeholder="e.g. The Name of the Wind" />
                         </div>
                         <div>
+                            <FieldLabel label="Original title" hint="Optional — useful for matching editions across languages" />
+                            <TextInput value={manualOriginalTitle} onChange={setManualOriginalTitle} placeholder="e.g. The Name of the Wind" />
+                        </div>
+                        <div>
                             <FieldLabel label="Author(s)" hint="Required — press Enter or comma to add each name" />
                             <TagInput values={manualAuthors} onChange={setManualAuthors} placeholder="e.g. Patrick Rothfuss" />
                         </div>
@@ -1397,7 +1409,10 @@ export default function AddBookPage() {
 
                     <Card padding="lg">
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
+                            <div>
+                                <FieldLabel label="Original title" hint="Optional — helps match the same book across different edition titles" />
+                                <TextInput value={editionOriginalTitle} onChange={setEditionOriginalTitle} placeholder="e.g. The Name of the Wind" />
+                            </div>
                             {/* ── BOOK fields ── */}
                             {!isAudiobook && (
                                 <>

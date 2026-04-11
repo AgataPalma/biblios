@@ -38,6 +38,8 @@ export interface SubmitBookPayload {
     genres: string[]
     catalogue_only?: boolean
     edition: {
+        title?: string
+        original_title?: string
         format: string
         description?: string
         cover_url?: string
