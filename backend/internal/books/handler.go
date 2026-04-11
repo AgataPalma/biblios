@@ -166,6 +166,10 @@ func (h *Handler) SubmitBook(w http.ResponseWriter, r *http.Request) {
 	var result SubmitBookResult
 	result, err = h.service.SubmitBook(r.Context(), input)
 	if err != nil {
+		if strings.Contains(err.Error(), "invalid ISBN") {
+			httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid ISBN")
+			return
+		}
 		if err.Error() == "edition with this ISBN already exists" {
 			var isbn string
 			if req.Edition.ISBN13 != nil && *req.Edition.ISBN13 != "" {
@@ -337,10 +341,18 @@ func (h *Handler) UpdateBook(w http.ResponseWriter, r *http.Request) {
 		if req.Edition.CoverURL != nil && *req.Edition.CoverURL == "" {
 			req.Edition.CoverURL = nil
 		}
+		var editionTitle string
+		if req.Edition.Title != nil {
+			editionTitle = *req.Edition.Title
+		}
+		var editionOriginalTitle string
+		if req.Edition.OriginalTitle != nil {
+			editionOriginalTitle = *req.Edition.OriginalTitle
+		}
 		input.EditionID = req.Edition.ID
 		input.Edition = &EditionInput{
-			Title:           req.Edition.Title,
-			OriginalTitle:   req.Edition.OriginalTitle,
+			Title:           editionTitle,
+			OriginalTitle:   editionOriginalTitle,
 			Format:          req.Edition.Format,
 			Description:     req.Edition.Description,
 			CoverURL:        req.Edition.CoverURL,

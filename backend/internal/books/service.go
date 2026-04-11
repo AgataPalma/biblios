@@ -62,6 +62,7 @@ type EditionInput struct {
 	Format          string   `json:"format"`
 	Description     *string  `json:"description"`
 	CoverURL        *string  `json:"cover_url"`
+	ISBN            *string  `json:"isbn"` // accepted as an alias; normalized into ISBN10/ISBN13
 	ISBN10          *string  `json:"isbn10"`
 	ISBN13          *string  `json:"isbn13"`
 	ASIN            *string  `json:"asin"`
@@ -158,6 +159,19 @@ func normalizeEditionISBNs(input *EditionInput) (*string, *string, error) {
 	}
 	if input.ISBN10 != nil && *input.ISBN10 != "" {
 		pair, err := isbn.Normalize(*input.ISBN10)
+		if err != nil {
+			return nil, nil, err
+		}
+		var isbn10 *string
+		if pair.ISBN10 != nil {
+			v := *pair.ISBN10
+			isbn10 = &v
+		}
+		isbn13 := pair.ISBN13
+		return isbn10, &isbn13, nil
+	}
+	if input.ISBN != nil && *input.ISBN != "" {
+		pair, err := isbn.Normalize(*input.ISBN)
 		if err != nil {
 			return nil, nil, err
 		}
