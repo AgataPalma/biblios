@@ -355,10 +355,20 @@ func (s *Service) SubmitBook(ctx context.Context, input SubmitBookInput) (Submit
 		book.Series = &series
 	}
 
+	editionTitle := strings.TrimSpace(input.Edition.Title)
+	if editionTitle == "" {
+		editionTitle = strings.TrimSpace(input.Title)
+	}
+	originalTitle := strings.TrimSpace(input.Edition.OriginalTitle)
+	if originalTitle == "" {
+		originalTitle = editionTitle
+	}
+
 	// Create edition
 	var edition Edition = Edition{
 		BookID:          book.ID,
-		Title:           book.Title,
+		Title:           editionTitle,
+		OriginalTitle:   originalTitle,
 		Format:          input.Edition.Format,
 		Description:     input.Edition.Description,
 		CoverURL:        input.Edition.CoverURL,
@@ -532,7 +542,8 @@ func (s *Service) UpdateBook(ctx context.Context, input UpdateBookInput) error {
 		}
 		edition := Edition{
 			ID:              input.EditionID,
-			Title:           "", // keep unchanged on update path (repository only updates mutable fields below)
+			Title:           strings.TrimSpace(input.Edition.Title),
+			OriginalTitle:   strings.TrimSpace(input.Edition.OriginalTitle),
 			Format:          input.Edition.Format,
 			Description:     input.Edition.Description,
 			CoverURL:        input.Edition.CoverURL,

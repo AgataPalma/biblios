@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/AgataPalma/biblios/internal/books"
 )
@@ -121,6 +122,7 @@ type EditAndApproveInput struct {
 	SubmissionID string
 	ReviewerID   string
 	Title        string
+	Description  *string
 	Edition      books.Edition
 }
 
@@ -141,10 +143,24 @@ func (s *Service) EditAndApprove(ctx context.Context, input EditAndApproveInput)
 	var before []byte
 	before, _ = json.Marshal(submission)
 
-	// Apply edits to book title
-	err = s.repo.UpdateBook(ctx, *submission.BookID, &input.Title)
-	if err != nil {
-		return err
+	// Apply edits to book metadata
+	var title *string
+	if strings.TrimSpace(input.Title) != "" {
+		cleanTitle := strings.TrimSpace(input.Title)
+		title = &cleanTitle
+	}
+
+	var description *string
+	if input.Description != nil {
+		cleanDescription := strings.TrimSpace(*input.Description)
+		description = &cleanDescription
+	}
+
+	if title != nil || description != nil {
+		err = s.repo.UpdateBook(ctx, *submission.BookID, title, description)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = s.repo.UpdateEditionDetails(ctx, *submission.EditionID, input.Edition)

@@ -2,10 +2,14 @@ package books
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/AgataPalma/biblios/internal/httpx"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -136,9 +140,17 @@ func (h *Handler) SubmitBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Treat empty string cover_url as absent (in edition)
-	if req.Edition.CoverURL != nil && *req.Edition.CoverURL == "" {
-		req.Edition.CoverURL = nil
+	// If frontend sends a data URI, persist it to /covers and store the public URL.
+	if req.Edition.CoverURL != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(*req.Edition.CoverURL)), "data:image/") {
+		publicURL, saveErr := h.saveDataURICover(strings.TrimSpace(*req.Edition.CoverURL))
+		if saveErr != nil {
+			httpx.WriteError(w, http.StatusUnprocessableEntity, saveErr.Error())
+			return
+		}
+		req.Edition.CoverURL = &publicURL
+	} else {
+		// Normalize regular cover_url input.
+		req.Edition.CoverURL = normalizeCoverURL(req.Edition.CoverURL)
 	}
 
 	var input = SubmitBookInput{
@@ -166,6 +178,12 @@ func (h *Handler) SubmitBook(w http.ResponseWriter, r *http.Request) {
 	var result SubmitBookResult
 	result, err = h.service.SubmitBook(r.Context(), input)
 	if err != nil {
+		slog.Error("submit book failed", "error", err, "title", req.Title, "user_id", claims.UserID)
+
+		if strings.Contains(err.Error(), "invalid ISBN") {
+			httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid ISBN")
+			return
+		}
 		if strings.Contains(err.Error(), "invalid ISBN") {
 			httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid ISBN")
 			return
@@ -176,6 +194,8 @@ func (h *Handler) SubmitBook(w http.ResponseWriter, r *http.Request) {
 				isbn = *req.Edition.ISBN13
 			} else if req.Edition.ISBN10 != nil {
 				isbn = *req.Edition.ISBN10
+			} else if req.Edition.ISBN != nil {
+				isbn = *req.Edition.ISBN
 			}
 			existing, _ := h.service.FindExistingEditionByISBN(r.Context(), isbn)
 			httpx.WriteJSON(w, http.StatusConflict, map[string]interface{}{
@@ -184,6 +204,14 @@ func (h *Handler) SubmitBook(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+
+		if strings.Contains(strings.ToLower(err.Error()), "check constraint") ||
+			strings.Contains(strings.ToLower(err.Error()), "invalid input") ||
+			strings.Contains(strings.ToLower(err.Error()), "value too long") {
+			httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to submit book")
 		return
 	}
@@ -571,4 +599,70 @@ func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"cover_url": publicURL})
+}
+
+func (h *Handler) saveDataURICover(dataURI string) (string, error) {
+	parts := strings.SplitN(dataURI, ",", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid cover image data URI")
+	}
+
+	meta := strings.ToLower(strings.TrimSpace(parts[0]))
+	payload := strings.TrimSpace(parts[1])
+	if !strings.HasSuffix(meta, ";base64") {
+		return "", fmt.Errorf("cover image must be base64-encoded")
+	}
+
+	mime := strings.TrimPrefix(strings.Split(meta, ";")[0], "data:")
+	allowed := map[string]string{
+		"image/jpeg": ".jpg",
+		"image/png":  ".png",
+		"image/webp": ".webp",
+	}
+	ext, ok := allowed[mime]
+	if !ok {
+		return "", fmt.Errorf("only JPEG, PNG and WebP images are accepted")
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return "", fmt.Errorf("invalid base64 cover image")
+	}
+	if len(raw) == 0 {
+		return "", fmt.Errorf("empty cover image")
+	}
+	if len(raw) > 8<<20 {
+		return "", fmt.Errorf("cover image is too large")
+	}
+
+	if err = os.MkdirAll(h.coversDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create covers directory")
+	}
+
+	b := make([]byte, 8)
+	if _, err = rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate cover filename")
+	}
+	filename := "upload-" + hex.EncodeToString(b) + ext
+	destPath := filepath.Join(h.coversDir, filename)
+
+	if err = os.WriteFile(destPath, raw, 0644); err != nil {
+		return "", fmt.Errorf("failed to save cover image")
+	}
+
+	return fmt.Sprintf("/covers/%s", filename), nil
+}
+
+func normalizeCoverURL(raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+	v := strings.TrimSpace(*raw)
+	if v == "" {
+		return nil
+	}
+	if strings.HasPrefix(strings.ToLower(v), "data:image/") {
+		return nil
+	}
+	return &v
 }

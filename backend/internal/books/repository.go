@@ -478,25 +478,27 @@ func (r *Repository) UpdateEditionDetails(ctx context.Context, editionID string,
 	// existing value instead of violating the NOT NULL / CHECK constraint on format.
 	var query string = `
         UPDATE book_editions SET
-            description     = $2,
-            cover_url       = $3,
-            format          = COALESCE(NULLIF($4, ''), format),
-            isbn10          = $5,
-            isbn13          = $6,
-            asin            = $7,
-            language        = COALESCE(NULLIF($8, ''), language),
-            publisher       = $9,
-            edition         = $10,
-            published_at    = $11,
-            page_count      = $12,
-            file_format     = NULLIF($13, ''),
-            duration_minutes = $14,
-            audio_format    = NULLIF($15, ''),
+            title           = COALESCE(NULLIF($2, ''), title),
+            original_title  = COALESCE(NULLIF($3, ''), original_title),
+            description     = $4,
+            cover_url       = $5,
+            format          = COALESCE(NULLIF($6, ''), format),
+            isbn10          = $7,
+            isbn13          = $8,
+            asin            = $9,
+            language        = COALESCE(NULLIF($10, ''), language),
+            publisher       = $11,
+            edition         = $12,
+            published_at    = $13,
+            page_count      = $14,
+            file_format     = NULLIF($15, ''),
+            duration_minutes = $16,
+            audio_format    = NULLIF($17, ''),
             updated_at      = NOW()
         WHERE id = $1 AND deleted_at IS NULL
     `
 	tag, err := r.db.Exec(ctx, query,
-		editionID, e.Description, e.CoverURL, e.Format, e.ISBN10, e.ISBN13, e.ASIN, e.Language,
+		editionID, e.Title, e.OriginalTitle, e.Description, e.CoverURL, e.Format, e.ISBN10, e.ISBN13, e.ASIN, e.Language,
 		e.Publisher, e.Edition, e.PublishedAt, e.PageCount,
 		e.FileFormat, e.DurationMinutes, e.AudioFormat,
 	)
@@ -647,21 +649,20 @@ func (r *txRepository) InsertEdition(ctx context.Context, e Edition, autoApprove
 
 	var query string = `
         INSERT INTO book_editions (
-            book_id, format, description, cover_url, isbn10, isbn13, asin, language, publisher,
+            book_id, title, original_title, format, description, cover_url, isbn10, isbn13, asin, language, publisher,
             edition, published_at, page_count, file_format,
             duration_minutes, audio_format, status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-        RETURNING id, book_id, format, description, cover_url, isbn10, isbn13, asin, language, publisher,
+        )  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        RETURNING id, book_id, title, original_title, format, description, cover_url, isbn10, isbn13, asin, language, publisher,
             edition, published_at, page_count, file_format,
             duration_minutes, audio_format, status, deleted_at, created_at, updated_at
     `
 
 	var err error = r.db.QueryRow(ctx, query,
-		e.BookID, e.Format, e.Description, e.CoverURL, e.ISBN10, e.ISBN13, e.ASIN, e.Language,
-		e.Publisher, e.Edition, e.PublishedAt, e.PageCount,
+		e.BookID, e.Title, e.OriginalTitle, e.Format, e.Description, e.CoverURL, e.ISBN10, e.ISBN13, e.ASIN, e.Language, e.Publisher, e.Edition, e.PublishedAt, e.PageCount,
 		e.FileFormat, e.DurationMinutes, e.AudioFormat, status,
 	).Scan(
-		&edition.ID, &edition.BookID, &edition.Format, &edition.Description, &edition.CoverURL,
+		&edition.ID, &edition.BookID, &edition.Title, &edition.OriginalTitle, &edition.Format, &edition.Description, &edition.CoverURL,
 		&edition.ISBN10, &edition.ISBN13, &edition.ASIN, &edition.Language,
 		&edition.Publisher, &edition.Edition, &edition.PublishedAt,
 		&edition.PageCount, &edition.FileFormat, &edition.DurationMinutes,

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/AgataPalma/biblios/internal/books"
@@ -76,6 +77,10 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 		ReviewerID:   claims.UserID,
 	})
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -111,6 +116,10 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 		Reason:       req.Reason,
 	})
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -119,8 +128,9 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 }
 
 type editAndApproveRequest struct {
-	Title   string        `json:"title"`
-	Edition books.Edition `json:"edition"`
+	Title       string        `json:"title"`
+	Description *string       `json:"description"`
+	Edition     books.Edition `json:"edition"`
 }
 
 func (h *Handler) EditAndApprove(w http.ResponseWriter, r *http.Request) {
@@ -141,8 +151,9 @@ func (h *Handler) EditAndApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Title == "" {
-		writeError(w, http.StatusUnprocessableEntity, "title is required")
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" && req.Description == nil {
+		writeError(w, http.StatusUnprocessableEntity, "at least one of title or description is required")
 		return
 	}
 
@@ -150,9 +161,14 @@ func (h *Handler) EditAndApprove(w http.ResponseWriter, r *http.Request) {
 		SubmissionID: id,
 		ReviewerID:   claims.UserID,
 		Title:        req.Title,
+		Description:  req.Description,
 		Edition:      req.Edition,
 	})
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

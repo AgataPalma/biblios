@@ -25,9 +25,12 @@ type Author struct {
 }
 
 type BookSummary struct {
-	ID     string `json:"id"`
-	Title  string `json:"title"`
-	Status string `json:"status"`
+	ID        string     `json:"id"`
+	Title     string     `json:"title"`
+	Status    string     `json:"status"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at,omitempty"`
+	UpdatedAt time.Time  `json:"updated_at,omitempty"`
 	// add series or description later if needed
 	Authors []Author `json:"authors"`
 }
