@@ -6,14 +6,10 @@ import (
 	"fmt"
 	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/AgataPalma/biblios/internal/auth"
-	"github.com/AgataPalma/biblios/internal/books"
 	"github.com/AgataPalma/biblios/internal/config"
 	"github.com/AgataPalma/biblios/internal/database"
-	"github.com/AgataPalma/biblios/internal/library"
 	"github.com/AgataPalma/biblios/internal/lookup"
 	"github.com/AgataPalma/biblios/internal/middleware"
-	"github.com/AgataPalma/biblios/internal/moderation"
-	"github.com/AgataPalma/biblios/internal/reviews"
 	"github.com/AgataPalma/biblios/internal/tokenstore"
 	"github.com/AgataPalma/biblios/internal/users"
 	"github.com/go-chi/chi/v5"
@@ -99,29 +95,10 @@ func main() {
 
 	var authHandler *auth.Handler = auth.NewHandler(userService, cfg.JWTSecret, tStore)
 
-	// Books
-	var bookRepo *books.Repository = books.NewRepository(db)
-	var bookService *books.Service = books.NewService(bookRepo, db)
-
-	libraryRepo := library.NewRepository(db)
-	libraryService := library.NewService(libraryRepo, bookRepo, db) // if you inject edition/book lookup via booksRepo
-	libraryHandler := library.NewHandler(libraryService)
-
-	// Moderation
-	var moderationService *moderation.Service = moderation.NewService(bookRepo)
-	var moderationHandler *moderation.Handler = moderation.NewHandler(moderationService)
-
 	// Lookup
 	var lookupService *lookup.Service = lookup.NewService(cfg.GoogleBooksAPIKey)
 	var lookupHandler *lookup.Handler = lookup.NewHandler(lookupService)
 
-	// Adapter to satisfy books.LookupService interface
-	var bookHandler *books.Handler = books.NewHandler(bookService, &lookupAdapter{svc: lookupService}, cfg.CoversDir)
-
-	// Reviews
-	var reviewRepo *reviews.Repository = reviews.NewRepository(db)
-	var reviewService *reviews.Service = reviews.NewService(reviewRepo)
-	var reviewHandler *reviews.Handler = reviews.NewHandler(reviewService)
 	// Router
 	var r *chi.Mux = chi.NewRouter()
 	//    r := chi.NewRouter()
@@ -161,48 +138,16 @@ func main() {
 			r.Put("/users/me/password", userHandler.UpdatePassword) //UpdatePassword
 
 			// Books - all users
-			r.Get("/books", bookHandler.ListBooks)
+
 			r.Get("/books/lookup", lookupHandler.Lookup)
-			r.Get("/books/check", bookHandler.CheckDuplicate)
-			r.Post("/books", bookHandler.SubmitBook)
-			r.Get("/users/me/books", bookHandler.GetMyBooks)
-			r.Get("/books/{id}", bookHandler.GetBook)
-			r.Post("/books/copies", bookHandler.AddCopy)
 
-			// library routes now point to libraryHandler:
-			r.Get("/users/me/library", libraryHandler.GetMyLibrary)
-			r.Put("/books/copies/{id}/status", libraryHandler.UpdateReadingStatus)
-			r.Delete("/books/copies/{id}", libraryHandler.RemoveCopy)
-
-			// Reviews
-			r.Get("/books/{id}/reviews", reviewHandler.GetBookReviews)
-			r.Get("/books/{id}/reviews/me", reviewHandler.GetMyReview)
-			r.Post("/books/{id}/reviews", reviewHandler.UpsertReview)
-			r.Put("/books/{id}/reviews/me", reviewHandler.UpdateMyReview)
-			r.Delete("/books/{id}/reviews/me", reviewHandler.DeleteMyReview)
-
-			// Books - moderators and admins only
-			r.Group(func(r chi.Router) {
-				r.Use(middleware.RequireRole(apictx.RoleModerator, apictx.RoleAdmin))
-				r.Put("/books/{id}", bookHandler.UpdateBook)
-				r.Delete("/books/{id}", bookHandler.DeleteBook)
-			})
 		})
 
 		// Moderation routes - moderators and admins only
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Authenticate(cfg.JWTSecret, tStore))
 			r.Use(middleware.RequireRole(apictx.RoleModerator, apictx.RoleAdmin))
-			r.Get("/moderation/submissions", moderationHandler.ListPending)
-			r.Get("/moderation/submissions/{id}", moderationHandler.GetSubmission)
-			r.Put("/moderation/submissions/{id}/approve", moderationHandler.Approve)
-			r.Put("/moderation/submissions/{id}/reject", moderationHandler.Reject)
-			r.Put("/moderation/submissions/{id}/edit", moderationHandler.EditAndApprove)
-			// Cover image upload
-			r.Post("/books/{id}/cover", bookHandler.UploadCover)
-			// Admin only
-			r.With(middleware.RequireRole(apictx.RoleAdmin)).
-				Post("/admin/backfill-covers", bookHandler.BackfillCovers)
+
 		})
 	})
 
