@@ -9,21 +9,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type userRepository interface {
-	ExistsByEmail(ctx context.Context, email string) (bool, error)
-	ExistsByUsername(ctx context.Context, username string) (bool, error)
-	CreateUser(ctx context.Context, email, username, passwordHash string) (User, error)
-	UpdateUser(ctx context.Context, userID string, username, bio, avatarUrl *string) (User, error)
-	UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error
-	SoftDeleteWithCascade(ctx context.Context, userID string) error
-	FindByEmail(ctx context.Context, email string) (User, error)
-	FindByID(ctx context.Context, id string) (User, error)
-	UpdateTheme(ctx context.Context, userID string, theme string) error
-	UpdateEmail(ctx context.Context, userID string, newEmail string) error
+type Service struct {
+	repo *Repository
 }
 
-type Service struct {
-	repo userRepository
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
 type RegisterInput struct {
@@ -37,157 +28,108 @@ type LoginInput struct {
 	Password string
 }
 
-type UpdateUserInput struct {
-	UserID    string
-	Email     *string
-	Username  *string
-	Bio       *string
-	AvatarUrl *string
-}
-
-type UpdatePasswordInput struct {
-	UserID          string
-	CurrentPassword string
-	NewPassword     string
-}
-
-type UpdateEmailInput struct {
-	UserID          string
-	NewEmail        string
-	CurrentPassword string
-}
-
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
-}
-
-func isUniqueViolation(err error, constraintName string) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505" && pgErr.ConstraintName == constraintName
-	}
-	return false
-}
-
 func (s *Service) Register(ctx context.Context, input RegisterInput) (User, error) {
-	var existsEmail bool
-	var err error
-
-	existsEmail, err = s.repo.ExistsByEmail(ctx, input.Email)
+	exists, err := s.repo.ExistsByEmail(ctx, input.Email)
 	if err != nil {
-		return User{}, fmt.Errorf("failed to check email: %w", err)
+		return User{}, fmt.Errorf("check email: %w", err)
 	}
-	if existsEmail {
+	if exists {
 		return User{}, fmt.Errorf("email already registered")
 	}
 
-	var existsUsername bool
-	existsUsername, err = s.repo.ExistsByUsername(ctx, input.Username)
+	exists, err = s.repo.ExistsByUsername(ctx, input.Username)
 	if err != nil {
-		return User{}, fmt.Errorf("failed to check username: %w", err)
+		return User{}, fmt.Errorf("check username: %w", err)
 	}
-	if existsUsername {
+	if exists {
 		return User{}, fmt.Errorf("username already taken")
 	}
 
-	var hash []byte
-	hash, err = bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return User{}, fmt.Errorf("failed to hash password: %w", err)
+		return User{}, fmt.Errorf("hash password: %w", err)
 	}
 
-	var user User
-	user, err = s.repo.CreateUser(ctx, input.Email, input.Username, string(hash))
+	user, err := s.repo.CreateUser(ctx, input.Email, input.Username, string(hash))
 	if err != nil {
-		return User{}, fmt.Errorf("failed to create user: %w", err)
+		return User{}, fmt.Errorf("create user: %w", err)
+	}
+
+	// Create default library
+	if err = s.repo.CreateDefaultLibrary(ctx, user.ID); err != nil {
+		return User{}, fmt.Errorf("create default library: %w", err)
 	}
 
 	return user, nil
 }
 
 func (s *Service) Login(ctx context.Context, input LoginInput) (User, error) {
-	var user User
-	var err error
-
-	user, err = s.repo.FindByEmail(ctx, input.Email)
+	user, err := s.repo.FindByEmail(ctx, input.Email)
 	if err != nil {
 		return User{}, fmt.Errorf("invalid credentials")
 	}
-
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password))
-	if err != nil {
+	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)); err != nil {
 		return User{}, fmt.Errorf("invalid credentials")
 	}
-
 	return user, nil
-}
-
-func (s *Service) UpdateUser(ctx context.Context, input UpdateUserInput) (User, error) {
-	var user User
-	var err error
-
-	user, err = s.repo.UpdateUser(ctx, input.UserID, input.Username, input.Bio, input.AvatarUrl)
-	if err != nil {
-		if isUniqueViolation(err, "users_email_key") {
-			return User{}, fmt.Errorf("email already in use")
-		}
-		if isUniqueViolation(err, "users_username_key") {
-			return User{}, fmt.Errorf("username already in use")
-		}
-		return User{}, fmt.Errorf("failed to update profile: %w", err)
-	}
-
-	return user, nil
-}
-
-func (s *Service) UpdateEmail(ctx context.Context, input UpdateEmailInput) error {
-	var user User
-	var err error
-
-	user, err = s.repo.FindByID(ctx, input.UserID)
-	if err != nil {
-		return fmt.Errorf("error validating user: %w", err)
-	}
-
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.CurrentPassword))
-	if err != nil {
-		return fmt.Errorf("password is incorrect")
-	}
-
-	return s.repo.UpdateEmail(ctx, input.UserID, input.NewEmail)
-}
-
-func (s *Service) UpdatePassword(ctx context.Context, input UpdatePasswordInput) error {
-	var user User
-	var err error
-
-	user, err = s.repo.FindByID(ctx, input.UserID)
-	if err != nil {
-		return fmt.Errorf("user not found")
-	}
-
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.CurrentPassword))
-	if err != nil {
-		return fmt.Errorf("current password is incorrect")
-	}
-
-	var hash []byte
-	hash, err = bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
-	}
-
-	return s.repo.UpdatePassword(ctx, input.UserID, string(hash))
-}
-
-func (s *Service) UpdateTheme(ctx context.Context, userID string, theme string) error {
-	return s.repo.UpdateTheme(ctx, userID, theme)
 }
 
 func (s *Service) GetByID(ctx context.Context, id string) (User, error) {
 	return s.repo.FindByID(ctx, id)
 }
 
+func (s *Service) UpdateProfile(ctx context.Context, userID string, username, bio, avatarURL *string) (User, error) {
+	user, err := s.repo.UpdateProfile(ctx, userID, username, bio, avatarURL)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if pgErr.ConstraintName == "users_username_key" {
+				return User{}, fmt.Errorf("username already taken")
+			}
+		}
+		return User{}, err
+	}
+	return user, nil
+}
+
+func (s *Service) UpdateEmail(ctx context.Context, userID, currentPassword, newEmail string) error {
+	user, err := s.repo.FindByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		return fmt.Errorf("current password is incorrect")
+	}
+	return s.repo.UpdateEmail(ctx, userID, newEmail)
+}
+
+func (s *Service) UpdatePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	user, err := s.repo.FindByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		return fmt.Errorf("current password is incorrect")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	return s.repo.UpdatePassword(ctx, userID, string(hash))
+}
+
+func (s *Service) UpdateTheme(ctx context.Context, userID, theme string) error {
+	validThemes := map[string]bool{
+		"default-light": true, "woody": true, "nordic": true, "metallic": true,
+		"futuristic": true, "post-apocalyptic": true, "dark-academia": true,
+		"ocean": true, "space": true,
+	}
+	if !validThemes[theme] {
+		return fmt.Errorf("invalid theme")
+	}
+	return s.repo.UpdateTheme(ctx, userID, theme)
+}
+
 func (s *Service) DeleteUser(ctx context.Context, userID string) error {
-	return s.repo.SoftDeleteWithCascade(ctx, userID)
+	return s.repo.SoftDelete(ctx, userID)
 }

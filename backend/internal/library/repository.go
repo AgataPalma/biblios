@@ -2,18 +2,15 @@ package library
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"time"
 
+	"github.com/AgataPalma/biblios/internal/books"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-type DB interface {
-	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
-	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
-	Exec(ctx context.Context, sql string, args ...interface{}) (pgconn.CommandTag, error)
-}
 
 type Repository struct {
 	db *pgxpool.Pool
@@ -23,235 +20,525 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) InsertCopy(ctx context.Context, editionID, ownerID string, condition *string, opts CopyOptions) (Copy, error) {
-	var copy Copy
-	status := opts.ReadingStatus
-	if status == "" {
-		status = "want_to_read"
+func generateToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate token: %w", err)
 	}
-	ownedByUser := true
-	if opts.OwnedByUser != nil {
-		ownedByUser = *opts.OwnedByUser
-	}
+	return hex.EncodeToString(b), nil
+}
 
-	var query string = `
-        INSERT INTO book_copies (
-            edition_id, owner_id, condition,
-            reading_status, current_page,
-            started_reading_at, finished_reading_at,
-            owned_by_user, borrowed_from, location
-        )
-        VALUES (
-            $1, $2, $3,
-            $4, $5,
-            CASE WHEN $6::text = '' THEN NULL ELSE $6::timestamptz END,
-            CASE WHEN $7::text = '' THEN NULL ELSE $7::timestamptz END,
-            $8, $9, $10
-        )
-        RETURNING id, edition_id, owner_id, condition, reading_status,
-                  current_page, started_reading_at, finished_reading_at,
-                  owned_by_user, borrowed_from, location,
-                  deleted_at, created_at, updated_at
-    `
-	var err error = r.db.QueryRow(ctx, query,
-		editionID, ownerID, condition,
-		status, opts.CurrentPage,
-		nullableString(opts.StartedReadingAt),
-		nullableString(opts.FinishedReadingAt),
-		ownedByUser, opts.BorrowedFrom, opts.Location,
-	).Scan(
-		&copy.ID, &copy.EditionID, &copy.OwnerID, &copy.Condition,
-		&copy.ReadingStatus, &copy.CurrentPage,
-		&copy.StartedReadingAt, &copy.FinishedReadingAt,
-		&copy.OwnedByUser, &copy.BorrowedFrom, &copy.Location,
-		&copy.DeletedAt, &copy.CreatedAt, &copy.UpdatedAt,
+const libraryColumns = `id, owner_id, name, description, is_cooperative, visibility, deleted_at, created_at, updated_at`
+
+func scanLibrary(row pgx.Row, l *Library) error {
+	return row.Scan(
+		&l.ID, &l.OwnerID, &l.Name, &l.Description,
+		&l.IsCooperative, &l.Visibility,
+		&l.DeletedAt, &l.CreatedAt, &l.UpdatedAt,
 	)
-	if err != nil {
-		return Copy{}, fmt.Errorf("failed to insert copy: %w", err)
-	}
-	return copy, nil
 }
 
-func (r *Repository) UpdateReadingStatus(ctx context.Context, copyID, userID string, input UpdateCopyInput) error {
-	var query string = `
-        UPDATE book_copies SET
-            reading_status      = $1,
-            current_page        = $2,
-            started_reading_at  = CASE WHEN $3::text = '' THEN NULL ELSE $3::timestamptz END,
-            finished_reading_at = CASE WHEN $4::text = '' THEN NULL ELSE $4::timestamptz END,
-            owned_by_user       = COALESCE($5, owned_by_user),
-            borrowed_from       = $6,
-            location            = COALESCE($7, location),
-            updated_at          = NOW()
-        WHERE id = $8 AND owner_id = $9 AND deleted_at IS NULL
-    `
-	tag, err := r.db.Exec(ctx, query,
-		input.Status,
-		input.CurrentPage,
-		nullableString(input.StartedReadingAt),
-		nullableString(input.FinishedReadingAt),
-		input.OwnedByUser,
-		input.BorrowedFrom,
-		input.Location,
-		copyID,
-		userID,
-	)
+// CreateLibrary creates a library and inserts the owner as a member with all permissions.
+func (r *Repository) CreateLibrary(ctx context.Context, ownerID, name string, description *string, isCooperative bool, visibility string) (Library, error) {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to update copy: %w", err)
+		return Library{}, fmt.Errorf("begin tx: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("copy not found")
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	var lib Library
+	err = scanLibrary(tx.QueryRow(ctx, `
+		INSERT INTO libraries (owner_id, name, description, is_cooperative, visibility)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING `+libraryColumns,
+		ownerID, name, description, isCooperative, visibility), &lib)
+	if err != nil {
+		return Library{}, fmt.Errorf("insert library: %w", err)
 	}
-	return nil
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO library_members
+			(library_id, user_id, is_owner, can_view, can_add, can_remove, can_edit, can_invite, can_manage_members)
+		VALUES ($1, $2, true, true, true, true, true, true, true)`,
+		lib.ID, ownerID)
+	if err != nil {
+		return Library{}, fmt.Errorf("insert owner member: %w", err)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return Library{}, fmt.Errorf("commit tx: %w", err)
+	}
+	return lib, nil
 }
 
-func (r *Repository) RemoveCopy(ctx context.Context, copyID, userID string) error {
-	var query string = `
-        UPDATE book_copies SET deleted_at = NOW(), updated_at = NOW()
-        WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL
-    `
-	tag, err := r.db.Exec(ctx, query, copyID, userID)
+func (r *Repository) FindLibraryByID(ctx context.Context, id string) (*Library, error) {
+	var lib Library
+	err := scanLibrary(r.db.QueryRow(ctx, `
+		SELECT `+libraryColumns+` FROM libraries WHERE id=$1 AND deleted_at IS NULL`, id), &lib)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
-		return fmt.Errorf("failed to remove copy: %w", err)
+		return nil, fmt.Errorf("find library: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("copy not found")
-	}
-	return nil
+	// Load member count
+	r.db.QueryRow(ctx, `SELECT COUNT(*) FROM library_members WHERE library_id=$1`, id).Scan(&lib.MemberCount)
+	return &lib, nil
 }
 
-func (r *Repository) FindUserLibrary(ctx context.Context, userID string, page, limit int) ([]UserBook, int, error) {
-	var offset int = (page - 1) * limit
-
-	var countQuery string = `
-        SELECT COUNT(DISTINCT bc.id)
-        FROM book_copies bc
-        JOIN book_editions be ON be.id = bc.edition_id
-        JOIN books b ON b.id = be.book_id
-        WHERE bc.owner_id = $1 AND bc.deleted_at IS NULL AND b.deleted_at IS NULL
-    `
-	var total int
-	if err := r.db.QueryRow(ctx, countQuery, userID).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("failed to count: %w", err)
-	}
-
-	var query string = `
-        SELECT
-            bc.id,
-            bc.reading_status,
-            bc.current_page,
-            bc.started_reading_at,
-            bc.finished_reading_at,
-            bc.owned_by_user,
-            bc.borrowed_from,
-            bc.location,
-            bc.condition,
-            bc.created_at,
-
-            b.id,
-            b.title,
-            b.status,
-            b.deleted_at,
-            b.created_at,
-            b.updated_at,
-
-            be.id,
-            be.format,
-            be.language,
-            be.cover_url,
-
-            c.id,
-            c.name
-        FROM book_copies bc
-        JOIN book_editions be ON be.id = bc.edition_id
-        JOIN books b ON b.id = be.book_id
-        LEFT JOIN book_contributors bc2 ON bc2.book_id = b.id AND bc2.role IN ('author', 'co_author')
-        LEFT JOIN contributors c ON c.id = bc2.contributor_id
-        WHERE bc.owner_id = $1
-          AND bc.deleted_at IS NULL
-          AND b.deleted_at IS NULL
-        ORDER BY bc.created_at DESC
-        LIMIT $2 OFFSET $3
-    `
-	rows, err := r.db.Query(ctx, query, userID, limit, offset)
+func (r *Repository) ListUserLibraries(ctx context.Context, userID string) ([]Library, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT l.`+libraryColumns+`
+		FROM libraries l
+		JOIN library_members lm ON lm.library_id=l.id
+		WHERE lm.user_id=$1 AND l.deleted_at IS NULL
+		ORDER BY l.created_at ASC`, userID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to query: %w", err)
+		return nil, fmt.Errorf("list user libraries: %w", err)
 	}
 	defer rows.Close()
 
-	type rowData struct {
-		userBook   UserBook
-		authorID   *string
-		authorName *string
-	}
-
-	bookMap := make(map[string]*UserBook)
-	order := make([]string, 0)
-
+	var libs []Library
 	for rows.Next() {
-		var rd rowData
-		err = rows.Scan(
-			&rd.userBook.CopyID,
-			&rd.userBook.ReadingStatus,
-			&rd.userBook.CurrentPage,
-			&rd.userBook.StartedReadingAt,
-			&rd.userBook.FinishedReadingAt,
-			&rd.userBook.OwnedByUser,
-			&rd.userBook.BorrowedFrom,
-			&rd.userBook.Location,
-			&rd.userBook.Condition,
-			&rd.userBook.AddedAt,
+		var lib Library
+		if err := scanLibrary(rows, &lib); err != nil {
+			return nil, err
+		}
+		libs = append(libs, lib)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
-			&rd.userBook.Book.ID,
-			&rd.userBook.Book.Title,
-			&rd.userBook.Book.Status,
-			&rd.userBook.Book.DeletedAt,
-			&rd.userBook.Book.CreatedAt,
-			&rd.userBook.Book.UpdatedAt,
+	// Batch load member counts
+	for i, lib := range libs {
+		r.db.QueryRow(ctx, `SELECT COUNT(*) FROM library_members WHERE library_id=$1`, lib.ID).Scan(&libs[i].MemberCount)
+	}
+	return libs, nil
+}
 
-			&rd.userBook.Edition.ID,
-			&rd.userBook.Edition.Format,
-			&rd.userBook.Edition.Language,
-			&rd.userBook.Edition.CoverURL,
+func (r *Repository) ListPublicLibraries(ctx context.Context, page, limit int) ([]Library, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
 
-			&rd.authorID,
-			&rd.authorName,
-		)
+	var total int
+	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM libraries WHERE visibility='public' AND deleted_at IS NULL`).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count public libraries: %w", err)
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT `+libraryColumns+` FROM libraries
+		WHERE visibility='public' AND deleted_at IS NULL
+		ORDER BY name ASC LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list public libraries: %w", err)
+	}
+	defer rows.Close()
+
+	var libs []Library
+	for rows.Next() {
+		var lib Library
+		if err := scanLibrary(rows, &lib); err != nil {
+			return nil, 0, err
+		}
+		libs = append(libs, lib)
+	}
+	return libs, total, rows.Err()
+}
+
+func (r *Repository) UpdateLibrary(ctx context.Context, id string, name, description, visibility *string) (Library, error) {
+	var lib Library
+	err := scanLibrary(r.db.QueryRow(ctx, `
+		UPDATE libraries SET
+			name        = COALESCE($2, name),
+			description = COALESCE($3, description),
+			visibility  = COALESCE($4, visibility),
+			updated_at  = NOW()
+		WHERE id=$1 AND deleted_at IS NULL
+		RETURNING `+libraryColumns, id, name, description, visibility), &lib)
+	if err == pgx.ErrNoRows {
+		return Library{}, fmt.Errorf("library not found")
+	}
+	if err != nil {
+		return Library{}, fmt.Errorf("update library: %w", err)
+	}
+	return lib, nil
+}
+
+func (r *Repository) DeleteLibrary(ctx context.Context, id string) error {
+	tag, err := r.db.Exec(ctx, `UPDATE libraries SET deleted_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, id)
+	if err != nil {
+		return fmt.Errorf("delete library: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("library not found")
+	}
+	return nil
+}
+
+// ─── Members ──────────────────────────────────────────────────────────────────
+
+const memberColumns = `lm.library_id, lm.user_id, u.username, lm.joined_at, lm.is_owner,
+	lm.can_view, lm.can_add, lm.can_remove, lm.can_edit, lm.can_invite, lm.can_manage_members`
+
+func scanMember(row pgx.Row, m *LibraryMember) error {
+	return row.Scan(
+		&m.LibraryID, &m.UserID, &m.Username, &m.JoinedAt, &m.IsOwner,
+		&m.CanView, &m.CanAdd, &m.CanRemove, &m.CanEdit, &m.CanInvite, &m.CanManageMembers,
+	)
+}
+
+func (r *Repository) GetMember(ctx context.Context, libraryID, userID string) (*LibraryMember, error) {
+	var m LibraryMember
+	err := scanMember(r.db.QueryRow(ctx, `
+		SELECT `+memberColumns+`
+		FROM library_members lm
+		JOIN users u ON u.id=lm.user_id
+		WHERE lm.library_id=$1 AND lm.user_id=$2`, libraryID, userID), &m)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get member: %w", err)
+	}
+	return &m, nil
+}
+
+func (r *Repository) ListMembers(ctx context.Context, libraryID string) ([]LibraryMember, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT `+memberColumns+`
+		FROM library_members lm
+		JOIN users u ON u.id=lm.user_id
+		WHERE lm.library_id=$1
+		ORDER BY lm.is_owner DESC, lm.joined_at ASC`, libraryID)
+	if err != nil {
+		return nil, fmt.Errorf("list members: %w", err)
+	}
+	defer rows.Close()
+
+	var members []LibraryMember
+	for rows.Next() {
+		var m LibraryMember
+		if err := scanMember(rows, &m); err != nil {
+			return nil, err
+		}
+		members = append(members, m)
+	}
+	return members, rows.Err()
+}
+
+func (r *Repository) AddMember(ctx context.Context, libraryID, userID string, perms LibraryMember) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO library_members
+			(library_id, user_id, is_owner, can_view, can_add, can_remove, can_edit, can_invite, can_manage_members)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		ON CONFLICT (library_id, user_id) DO NOTHING`,
+		libraryID, userID, false,
+		perms.CanView, perms.CanAdd, perms.CanRemove, perms.CanEdit, perms.CanInvite, perms.CanManageMembers)
+	if err != nil {
+		return fmt.Errorf("add member: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) UpdateMemberPermissions(ctx context.Context, libraryID, userID string, perms LibraryMember) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE library_members SET
+			can_view          = $3,
+			can_add           = $4,
+			can_remove        = $5,
+			can_edit          = $6,
+			can_invite        = $7,
+			can_manage_members = $8
+		WHERE library_id=$1 AND user_id=$2 AND is_owner=false`,
+		libraryID, userID,
+		perms.CanView, perms.CanAdd, perms.CanRemove, perms.CanEdit, perms.CanInvite, perms.CanManageMembers)
+	if err != nil {
+		return fmt.Errorf("update member permissions: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("member not found or is owner")
+	}
+	return nil
+}
+
+func (r *Repository) RemoveMember(ctx context.Context, libraryID, userID string) error {
+	tag, err := r.db.Exec(ctx, `
+		DELETE FROM library_members WHERE library_id=$1 AND user_id=$2 AND is_owner=false`,
+		libraryID, userID)
+	if err != nil {
+		return fmt.Errorf("remove member: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("member not found or is owner")
+	}
+	return nil
+}
+
+// ─── Invitations ──────────────────────────────────────────────────────────────
+
+const invitationColumns = `id, library_id, invited_by, invited_user_id, invited_email,
+	token, status, accepted_at, expires_at, created_at`
+
+func scanInvitation(row pgx.Row, inv *LibraryInvitation) error {
+	return row.Scan(
+		&inv.ID, &inv.LibraryID, &inv.InvitedBy, &inv.InvitedUserID, &inv.InvitedEmail,
+		&inv.Token, &inv.Status, &inv.AcceptedAt, &inv.ExpiresAt, &inv.CreatedAt,
+	)
+}
+
+func (r *Repository) CreateInvitation(ctx context.Context, libraryID, invitedBy, invitedEmail string, expiresAt time.Time) (LibraryInvitation, error) {
+	token, err := generateToken()
+	if err != nil {
+		return LibraryInvitation{}, err
+	}
+
+	// Try to resolve invited_user_id from email
+	var invitedUserID *string
+	var uid string
+	if err := r.db.QueryRow(ctx, `SELECT id FROM users WHERE email=$1 AND deleted_at IS NULL`, invitedEmail).Scan(&uid); err == nil {
+		invitedUserID = &uid
+	}
+
+	var inv LibraryInvitation
+	err = scanInvitation(r.db.QueryRow(ctx, `
+		INSERT INTO library_invitations
+			(library_id, invited_by, invited_user_id, invited_email, token, expires_at)
+		VALUES ($1,$2,$3,$4,$5,$6)
+		RETURNING `+invitationColumns,
+		libraryID, invitedBy, invitedUserID, invitedEmail, token, expiresAt), &inv)
+	if err != nil {
+		return LibraryInvitation{}, fmt.Errorf("create invitation: %w", err)
+	}
+	return inv, nil
+}
+
+func (r *Repository) FindInvitationByToken(ctx context.Context, token string) (*LibraryInvitation, error) {
+	var inv LibraryInvitation
+	err := scanInvitation(r.db.QueryRow(ctx, `
+		SELECT `+invitationColumns+` FROM library_invitations WHERE token=$1`, token), &inv)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find invitation by token: %w", err)
+	}
+	return &inv, nil
+}
+
+func (r *Repository) FindInvitationByID(ctx context.Context, id string) (*LibraryInvitation, error) {
+	var inv LibraryInvitation
+	err := scanInvitation(r.db.QueryRow(ctx, `
+		SELECT `+invitationColumns+` FROM library_invitations WHERE id=$1`, id), &inv)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find invitation by id: %w", err)
+	}
+	return &inv, nil
+}
+
+// AcceptInvitation marks the invitation accepted and adds the user as a library member.
+func (r *Repository) AcceptInvitation(ctx context.Context, token, userID string) error {
+	inv, err := r.FindInvitationByToken(ctx, token)
+	if err != nil {
+		return err
+	}
+	if inv == nil {
+		return fmt.Errorf("invitation not found")
+	}
+	if inv.Status != "pending" {
+		return fmt.Errorf("invitation is no longer pending")
+	}
+	if time.Now().After(inv.ExpiresAt) {
+		return fmt.Errorf("invitation has expired")
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to scan: %w", err)
+			_ = tx.Rollback(ctx)
 		}
+	}()
 
-		existing, ok := bookMap[rd.userBook.CopyID]
-		if !ok {
-			rd.userBook.Book.Authors = []Author{}
-			copy := rd.userBook
-			bookMap[rd.userBook.CopyID] = &copy
-			order = append(order, rd.userBook.CopyID)
-			existing = &copy
-		}
-
-		if rd.authorID != nil && rd.authorName != nil {
-			existing.Book.Authors = append(existing.Book.Authors, Author{
-				ID:   *rd.authorID,
-				Name: *rd.authorName,
-			})
-		}
-	}
-	if rows.Err() != nil {
-		return nil, 0, fmt.Errorf("row iteration failed: %w", rows.Err())
+	_, err = tx.Exec(ctx, `
+		UPDATE library_invitations
+		SET status='accepted', accepted_at=NOW(), invited_user_id=$2
+		WHERE token=$1`, token, userID)
+	if err != nil {
+		return fmt.Errorf("accept invitation: %w", err)
 	}
 
-	userBooks := make([]UserBook, 0, len(order))
-	for _, id := range order {
-		userBooks = append(userBooks, *bookMap[id])
+	_, err = tx.Exec(ctx, `
+		INSERT INTO library_members
+			(library_id, user_id, is_owner, can_view, can_add, can_remove, can_edit, can_invite, can_manage_members)
+		VALUES ($1,$2,false,true,false,false,false,false,false)
+		ON CONFLICT (library_id, user_id) DO NOTHING`,
+		inv.LibraryID, userID)
+	if err != nil {
+		return fmt.Errorf("add member on accept: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) DeclineInvitation(ctx context.Context, token string) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE library_invitations SET status='declined' WHERE token=$1 AND status='pending'`, token)
+	if err != nil {
+		return fmt.Errorf("decline invitation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("invitation not found or already actioned")
+	}
+	return nil
+}
+
+// ListUserInvitations returns pending invitations for the given user's email.
+func (r *Repository) ListUserInvitations(ctx context.Context, userID string) ([]LibraryInvitation, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT `+invitationColumns+`
+		FROM library_invitations li
+		WHERE (li.invited_user_id=$1 OR li.invited_email=(SELECT email FROM users WHERE id=$1 AND deleted_at IS NULL))
+		  AND li.status='pending'
+		ORDER BY li.created_at DESC`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list user invitations: %w", err)
+	}
+	defer rows.Close()
+
+	var invs []LibraryInvitation
+	for rows.Next() {
+		var inv LibraryInvitation
+		if err := scanInvitation(rows, &inv); err != nil {
+			return nil, err
+		}
+		// Strip token from response for security
+		inv.Token = ""
+		invs = append(invs, inv)
+	}
+	return invs, rows.Err()
+}
+
+// ─── Library books ────────────────────────────────────────────────────────────
+
+func (r *Repository) AddBookCopyToLibrary(ctx context.Context, libraryID, copyID string) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO library_book_copies (library_id, book_copy_id)
+		VALUES ($1,$2) ON CONFLICT DO NOTHING`, libraryID, copyID)
+	if err != nil {
+		return fmt.Errorf("add book to library: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) RemoveBookCopyFromLibrary(ctx context.Context, libraryID, copyID string) error {
+	tag, err := r.db.Exec(ctx, `
+		DELETE FROM library_book_copies WHERE library_id=$1 AND book_copy_id=$2`, libraryID, copyID)
+	if err != nil {
+		return fmt.Errorf("remove book from library: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("book copy not found in library")
+	}
+	return nil
+}
+
+func (r *Repository) ListLibraryBooks(ctx context.Context, libraryID string, page, limit int) ([]books.UserBook, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	var total int
+	if err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM library_book_copies lbc
+		JOIN book_copies bc ON bc.id=lbc.book_copy_id
+		WHERE lbc.library_id=$1 AND bc.deleted_at IS NULL`, libraryID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count library books: %w", err)
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT bc.id, bc.reading_status, bc.current_page, bc.started_reading_at, bc.finished_reading_at,
+		       bc.owned_by_user, bc.borrowed_from, bc.location, bc.condition, bc.reread_count,
+		       bc.personal_notes, lbc.added_at,
+		       be.id, be.format, be.language, be.cover_url,
+		       b.id, b.title, b.description, b.series_id, b.series_position, b.status,
+		       b.deleted_at, b.created_at, b.updated_at
+		FROM library_book_copies lbc
+		JOIN book_copies bc ON bc.id=lbc.book_copy_id
+		JOIN book_editions be ON be.id=bc.edition_id
+		JOIN books b ON b.id=be.book_id
+		WHERE lbc.library_id=$1 AND bc.deleted_at IS NULL AND be.deleted_at IS NULL AND b.deleted_at IS NULL
+		ORDER BY lbc.added_at DESC
+		LIMIT $2 OFFSET $3`, libraryID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list library books: %w", err)
+	}
+	defer rows.Close()
+
+	var userBooks []books.UserBook
+	for rows.Next() {
+		var ub books.UserBook
+		if err := rows.Scan(
+			&ub.CopyID, &ub.ReadingStatus, &ub.CurrentPage, &ub.StartedReadingAt, &ub.FinishedReadingAt,
+			&ub.OwnedByUser, &ub.BorrowedFrom, &ub.Location, &ub.Condition, &ub.RereadCount,
+			&ub.PersonalNotes, &ub.AddedAt,
+			&ub.EditionID, &ub.Format, &ub.Language, &ub.CoverURL,
+			&ub.Book.ID, &ub.Book.Title, &ub.Book.Description, &ub.Book.SeriesID, &ub.Book.SeriesPosition,
+			&ub.Book.Status, &ub.Book.DeletedAt, &ub.Book.CreatedAt, &ub.Book.UpdatedAt,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan library book: %w", err)
+		}
+		ub.Book.Authors = []books.Contributor{}
+		ub.Book.Genres = []books.Genre{}
+		userBooks = append(userBooks, ub)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	// Batch-load authors for each book
+	if len(userBooks) > 0 {
+		bookIDs := make([]string, len(userBooks))
+		idx := map[string][]int{}
+		for i, ub := range userBooks {
+			bookIDs[i] = ub.Book.ID
+			idx[ub.Book.ID] = append(idx[ub.Book.ID], i)
+		}
+		aRows, err := r.db.Query(ctx, `
+			SELECT bc2.book_id, c.id, c.name, c.status, c.deleted_at, c.created_at, c.updated_at
+			FROM contributors c JOIN book_contributors bc2 ON bc2.contributor_id=c.id
+			WHERE bc2.book_id=ANY($1) AND bc2.role IN ('author','co_author') AND c.deleted_at IS NULL`, bookIDs)
+		if err == nil {
+			for aRows.Next() {
+				var bookID string
+				var c books.Contributor
+				if err := aRows.Scan(&bookID, &c.ID, &c.Name, &c.Status, &c.DeletedAt, &c.CreatedAt, &c.UpdatedAt); err == nil {
+					for _, i := range idx[bookID] {
+						userBooks[i].Book.Authors = append(userBooks[i].Book.Authors, c)
+					}
+				}
+			}
+			aRows.Close()
+		}
 	}
 
 	return userBooks, total, nil
-}
-
-func nullableString(s *string) *string {
-	if s == nil || *s == "" {
-		return nil
-	}
-	return s
 }

@@ -1,35 +1,16 @@
 package books
 
-import (
-	"fmt"
-	"time"
+import "time"
 
-	"github.com/AgataPalma/biblios/internal/apictx"
-)
-
-type Author struct {
+type Contributor struct {
 	ID              string     `json:"id"`
 	Name            string     `json:"name"`
-	Status          string     `json:"status"`
-	RejectionReason *string    `json:"rejection_reason,omitempty"`
-	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-}
-
-type Narrator struct {
-	ID              string     `json:"id"`
-	Name            string     `json:"name"`
-	Status          string     `json:"status"`
-	RejectionReason *string    `json:"rejection_reason,omitempty"`
-	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-}
-
-type Translator struct {
-	ID              string     `json:"id"`
-	Name            string     `json:"name"`
+	Bio             *string    `json:"bio,omitempty"`
+	BornDate        *time.Time `json:"born_date,omitempty"`
+	DiedDate        *time.Time `json:"died_date,omitempty"`
+	PhotoURL        *string    `json:"photo_url,omitempty"`
+	Website         *string    `json:"website,omitempty"`
+	Nationality     *string    `json:"nationality,omitempty"`
 	Status          string     `json:"status"`
 	RejectionReason *string    `json:"rejection_reason,omitempty"`
 	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
@@ -45,49 +26,93 @@ type Genre struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-type Book struct {
+type Mood struct {
+	ID              string  `json:"id"`
+	Name            string  `json:"name"`
+	Status          string  `json:"status"`
+	RejectionReason *string `json:"rejection_reason,omitempty"`
+}
+
+type Series struct {
 	ID              string     `json:"id"`
-	Title           string     `json:"title"`
+	Name            string     `json:"name"`
 	Description     *string    `json:"description,omitempty"`
-	SeriesID        *string    `json:"series_id,omitempty"`
-	SeriesPosition  *float64   `json:"series_position,omitempty"`
-	Series          *Series    `json:"series,omitempty"`
 	Status          string     `json:"status"`
 	RejectionReason *string    `json:"rejection_reason,omitempty"`
-	Authors         []Author   `json:"authors"`
-	Genres          []Genre    `json:"genres"`
-	Editions        []Edition  `json:"editions,omitempty"`
 	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
+type Award struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+}
+
+type BookAward struct {
+	Award    Award   `json:"award"`
+	Year     int     `json:"year"`
+	Category *string `json:"category,omitempty"`
+	Result   *string `json:"result,omitempty"` // winner | nominee
+}
+
+type Book struct {
+	ID              string        `json:"id"`
+	Title           string        `json:"title"`
+	Description     *string       `json:"description,omitempty"`
+	SeriesID        *string       `json:"series_id,omitempty"`
+	SeriesPosition  *float64      `json:"series_position,omitempty"`
+	Series          *Series       `json:"series,omitempty"`
+	Status          string        `json:"status"`
+	RejectionReason *string       `json:"rejection_reason,omitempty"`
+	Authors         []Contributor `json:"authors"`
+	Genres          []Genre       `json:"genres"`
+	Moods           []Mood        `json:"moods,omitempty"`
+	Awards          []BookAward   `json:"awards,omitempty"`
+	Editions        []Edition     `json:"editions,omitempty"`
+	AverageRating   *float64      `json:"average_rating,omitempty"`
+	DeletedAt       *time.Time    `json:"deleted_at,omitempty"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+}
+
 type Edition struct {
-	ID              string       `json:"id"`
-	BookID          string       `json:"book_id"`
-	Title           string       `json:"title"`
-	OriginalTitle   string       `json:"original_title"`
-	Format          string       `json:"format"`
-	Description     *string      `json:"description,omitempty"`
-	CoverURL        *string      `json:"cover_url,omitempty"`
-	ISBN10          *string      `json:"isbn10,omitempty"`
-	ISBN13          *string      `json:"isbn13,omitempty"`
-	ASIN            *string      `json:"asin,omitempty"`
-	Language        string       `json:"language"`
-	Publisher       *string      `json:"publisher,omitempty"`
-	Edition         *string      `json:"edition,omitempty"`
-	PublishedAt     *time.Time   `json:"published_at,omitempty"`
-	PageCount       *int         `json:"page_count,omitempty"`
-	FileFormat      *string      `json:"file_format,omitempty"`
-	DurationMinutes *int         `json:"duration_minutes,omitempty"`
-	AudioFormat     *string      `json:"audio_format,omitempty"`
-	Status          string       `json:"status"`
-	RejectionReason *string      `json:"rejection_reason,omitempty"`
-	Translators     []Translator `json:"translators,omitempty"`
-	Narrators       []Narrator   `json:"narrators,omitempty"`
-	DeletedAt       *time.Time   `json:"deleted_at,omitempty"`
-	CreatedAt       time.Time    `json:"created_at"`
-	UpdatedAt       time.Time    `json:"updated_at"`
+	ID              string        `json:"id"`
+	BookID          string        `json:"book_id"`
+	Title           string        `json:"title"`
+	OriginalTitle   string        `json:"original_title"`
+	Format          string        `json:"format"`
+	Description     *string       `json:"description,omitempty"`
+	CoverURL        *string       `json:"cover_url,omitempty"`
+	ISBN10          *string       `json:"isbn10,omitempty"`
+	ISBN13          *string       `json:"isbn13,omitempty"`
+	ASIN            *string       `json:"asin,omitempty"`
+	Language        string        `json:"language"`
+	Publisher       *string       `json:"publisher,omitempty"`
+	Edition         *string       `json:"edition,omitempty"`
+	PublishedAt     *time.Time    `json:"published_at,omitempty"`
+	PageCount       *int          `json:"page_count,omitempty"`
+	FileFormat      *string       `json:"file_format,omitempty"`
+	DurationMinutes *int          `json:"duration_minutes,omitempty"`
+	AudioFormat     *string       `json:"audio_format,omitempty"`
+	Status          string        `json:"status"`
+	RejectionReason *string       `json:"rejection_reason,omitempty"`
+	Narrators       []Contributor `json:"narrators,omitempty"`
+	Translators     []Contributor `json:"translators,omitempty"`
+	DeletedAt       *time.Time    `json:"deleted_at,omitempty"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+}
+
+func (e Edition) PreferredISBN() string {
+	if e.ISBN13 != nil && *e.ISBN13 != "" {
+		return *e.ISBN13
+	}
+	if e.ISBN10 != nil && *e.ISBN10 != "" {
+		return *e.ISBN10
+	}
+	return ""
 }
 
 type Copy struct {
@@ -100,7 +125,7 @@ type Copy struct {
 	StartedReadingAt  *time.Time `json:"started_reading_at,omitempty"`
 	FinishedReadingAt *time.Time `json:"finished_reading_at,omitempty"`
 	OwnedByUser       bool       `json:"owned_by_user"`
-	BorrowedFrom      *string    `json:"borrowed_from,omitempty"` // user ID of real owner if borrowed
+	BorrowedFrom      *string    `json:"borrowed_from,omitempty"`
 	Location          *string    `json:"location,omitempty"`
 	RereadCount       int        `json:"reread_count"`
 	PersonalNotes     *string    `json:"personal_notes,omitempty"`
@@ -120,24 +145,12 @@ type Submission struct {
 	BookID          *string    `json:"book_id,omitempty"`
 	EditionID       *string    `json:"edition_id,omitempty"`
 	CopyID          *string    `json:"copy_id,omitempty"`
+	ContributorID   *string    `json:"contributor_id,omitempty"`
 	Book            *Book      `json:"book,omitempty"`
 	Edition         *Edition   `json:"edition,omitempty"`
 	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
-}
-
-type BookWithDetails struct {
-	ID       string    `json:"id"`
-	Title    string    `json:"title"`
-	Editions []Edition `json:"editions"`
-}
-
-type LookupResult struct {
-	Title       string `json:"title"`
-	CoverURL    string `json:"cover_url"`
-	ISBN        string `json:"isbn"`
-	Description string `json:"description"`
 }
 
 type UserBook struct {
@@ -156,53 +169,29 @@ type UserBook struct {
 	EditionID         string     `json:"edition_id"`
 	Format            string     `json:"format"`
 	Language          *string    `json:"language,omitempty"`
-	CoverURL          *string    `json:"cover_url,omitempty"` // from book_editions
+	CoverURL          *string    `json:"cover_url,omitempty"`
 	Book              Book       `json:"book"`
 }
 
-type UserBooksResult struct {
-	Books []UserBook `json:"books"`
-	Total int        `json:"total"`
-	Page  int        `json:"page"`
-	Limit int        `json:"limit"`
+type SearchFilters struct {
+	Query     string
+	Format    string
+	Language  string
+	Genre     string
+	Series    string
+	YearFrom  int
+	YearTo    int
+	Publisher string
+	Award     string
+	Mood      string
+	Sort      string // relevance | newest | oldest | title
+	Page      int
+	Limit     int
 }
 
-func (e Edition) PreferredISBN() string {
-	if e.ISBN13 != nil && *e.ISBN13 != "" {
-		return *e.ISBN13
-	}
-	if e.ISBN10 != nil && *e.ISBN10 != "" {
-		return *e.ISBN10
-	}
-	return ""
-}
-
-type Series struct {
-	ID              string     `json:"id"`
-	Name            string     `json:"name"`
-	Description     *string    `json:"description,omitempty"`
-	Status          string     `json:"status"`
-	RejectionReason *string    `json:"rejection_reason,omitempty"`
-	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-}
-
-// Role check helpers
-func CanAutoApprove(role apictx.Role) bool {
-	return role == apictx.RoleModerator || role == apictx.RoleAdmin
-}
-
-// parsePublishedAt parses a user-supplied year ("2001") or full date ("2001-09-01")
-// into a time.Time. Returns an error if the string is not a recognised format.
-func parsePublishedAt(s string) (time.Time, error) {
-	// Try full date first
-	if t, err := time.Parse("2006-01-02", s); err == nil {
-		return t, nil
-	}
-	// Try year only
-	if t, err := time.Parse("2006", s); err == nil {
-		return t, nil
-	}
-	return time.Time{}, fmt.Errorf("unrecognised date format: %q", s)
+type SearchResult struct {
+	Books []Book `json:"books"`
+	Total int    `json:"total"`
+	Page  int    `json:"page"`
+	Limit int    `json:"limit"`
 }

@@ -11,15 +11,11 @@ import (
 )
 
 func generateTokenID() (string, error) {
-	var bytes []byte = make([]byte, 16)
-	var err error
-
-	_, err = rand.Read(bytes)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate token ID: %w", err)
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate token ID: %w", err)
 	}
-
-	return hex.EncodeToString(bytes), nil
+	return hex.EncodeToString(b), nil
 }
 
 func GenerateToken(userID string, role apictx.Role, secret string) (string, string, error) {
@@ -27,7 +23,6 @@ func GenerateToken(userID string, role apictx.Role, secret string) (string, stri
 	if err != nil {
 		return "", "", err
 	}
-
 	claims := apictx.Claims{
 		UserID: userID,
 		Role:   role,
@@ -37,12 +32,10 @@ func GenerateToken(userID string, role apictx.Role, secret string) (string, stri
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(secret))
 	if err != nil {
-		return "", "", fmt.Errorf("failed to sign token: %w", err)
+		return "", "", fmt.Errorf("sign token: %w", err)
 	}
-
 	return signed, tokenID, nil
 }

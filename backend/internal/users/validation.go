@@ -6,27 +6,27 @@ import (
 	"strings"
 )
 
+var emailRegex = regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$`)
+
 func isEmailValid(e string) bool {
-	emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,4}$`)
-	return emailRegex.MatchString(e)
+	return emailRegex.MatchString(strings.ToLower(e))
 }
 
 func ValidateRegisterInput(input RegisterInput) error {
 	if strings.TrimSpace(input.Email) == "" {
-		return fmt.Errorf("email é obrigatório")
+		return fmt.Errorf("email is required")
 	}
 	if !isEmailValid(input.Email) {
-		return fmt.Errorf("email inválido")
+		return fmt.Errorf("invalid email")
 	}
-
 	if strings.TrimSpace(input.Username) == "" {
-		return fmt.Errorf("utilizador obrigatório")
+		return fmt.Errorf("username is required")
 	}
 	if len(input.Username) < 3 {
-		return fmt.Errorf("utilizador tem de conter pelo menos 3 caracteres")
+		return fmt.Errorf("username must be at least 3 characters")
 	}
 	if len(input.Password) < 8 {
-		return fmt.Errorf("password tem de ter pelo menos 8 caracteres")
+		return fmt.Errorf("password must be at least 8 characters")
 	}
 	return nil
 }

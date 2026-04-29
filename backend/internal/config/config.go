@@ -1,8 +1,6 @@
 package config
 
-import (
-	"os"
-)
+import "os"
 
 type Config struct {
 	DatabaseURL       string
@@ -10,8 +8,12 @@ type Config struct {
 	JWTSecret         string
 	Port              string
 	GoogleBooksAPIKey string
-	CoversDir         string // filesystem path where uploaded cover images are stored
-
+	CoversDir         string
+	SMTPHost          string
+	SMTPPort          string
+	SMTPUser          string
+	SMTPPass          string
+	SMTPFrom          string
 }
 
 func Load() Config {
@@ -22,13 +24,17 @@ func Load() Config {
 		Port:              getEnv("PORT", "8080"),
 		GoogleBooksAPIKey: getEnv("GOOGLE_BOOKS_API_KEY", ""),
 		CoversDir:         getEnv("COVERS_DIR", "./data/covers"),
+		SMTPHost:          getEnv("SMTP_HOST", ""),
+		SMTPPort:          getEnv("SMTP_PORT", "587"),
+		SMTPUser:          getEnv("SMTP_USER", ""),
+		SMTPPass:          getEnv("SMTP_PASS", ""),
+		SMTPFrom:          getEnv("SMTP_FROM", "noreply@biblioslibrary.app"),
 	}
 }
 
-func getEnv(key string, fallback string) string {
-	var val string = os.Getenv(key)
-	if val != "" {
-		return val
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
 	return fallback
 }

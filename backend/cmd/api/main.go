@@ -2,18 +2,24 @@ package main
 
 import (
 	"context"
-	"embed"
 	"fmt"
 	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/AgataPalma/biblios/internal/auth"
 	"github.com/AgataPalma/biblios/internal/books"
+	"github.com/AgataPalma/biblios/internal/collections"
 	"github.com/AgataPalma/biblios/internal/config"
+	"github.com/AgataPalma/biblios/internal/contributors"
 	"github.com/AgataPalma/biblios/internal/database"
+	"github.com/AgataPalma/biblios/internal/genres"
 	"github.com/AgataPalma/biblios/internal/library"
 	"github.com/AgataPalma/biblios/internal/lookup"
 	"github.com/AgataPalma/biblios/internal/middleware"
 	"github.com/AgataPalma/biblios/internal/moderation"
+	"github.com/AgataPalma/biblios/internal/notifications"
+	"github.com/AgataPalma/biblios/internal/reading"
 	"github.com/AgataPalma/biblios/internal/reviews"
+	"github.com/AgataPalma/biblios/internal/series"
+	"github.com/AgataPalma/biblios/internal/shelves"
 	"github.com/AgataPalma/biblios/internal/tokenstore"
 	"github.com/AgataPalma/biblios/internal/users"
 	"github.com/go-chi/chi/v5"
@@ -21,213 +27,137 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 )
 
-//go:embed swagger-ui
-var swaggerFiles embed.FS
-
-//go:embed docs/openapi.yaml
-var openAPISpec []byte
-
 func main() {
-	//logs
-	var handler slog.Handler = slog.NewJSONHandler(os.Stdout, nil)
-	var logger *slog.Logger = slog.New(handler)
-	slog.SetDefault(logger)
+	// ── Structured logging ────────────────────────────────────────────────────
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
-	//or
-	// logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	// slog.SetDefault(logger)
+	// ── Config ────────────────────────────────────────────────────────────────
+	cfg := config.Load()
 
-	// Config
-	var cfg config.Config = config.Load()
-	//cfg := config.Load()
-
-	// Postgres
-	var db *pgxpool.Pool
-	var err error
-	db, err = pgxpool.New(context.Background(), cfg.DatabaseURL)
-	//db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	// ── PostgreSQL ────────────────────────────────────────────────────────────
+	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("failed to connect to postgres", "error", err)
 		os.Exit(1)
 	}
 	defer db.Close()
-
 	if err = db.Ping(context.Background()); err != nil {
 		slog.Error("postgres ping failed", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("postgres connected")
 
-	// Run migrations
-	var dbURL string = cfg.DatabaseURL
-	if err = database.RunMigrations(dbURL); err != nil {
+	// ── Migrations ────────────────────────────────────────────────────────────
+	if err = database.RunMigrations(cfg.DatabaseURL); err != nil {
 		slog.Error("migrations failed", "error", err)
 		os.Exit(1)
 	}
 
-	// Redis
-	var opts *redis.Options
-	opts, err = redis.ParseURL(cfg.RedisURL)
-	// opts, err := redis.ParseURL(cfg.RedisURL)
+	// ── Redis ─────────────────────────────────────────────────────────────────
+	redisOpts, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
 		slog.Error("failed to parse redis URL", "error", err)
 		os.Exit(1)
 	}
-	var rdb *redis.Client = redis.NewClient(opts)
-	//    rdb := redis.NewClient(opts)
+	rdb := redis.NewClient(redisOpts)
 	defer rdb.Close()
-
 	if err = rdb.Ping(context.Background()).Err(); err != nil {
 		slog.Error("redis ping failed", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("redis connected")
 
-	// Token store
-	var tStore = tokenstore.NewStore(rdb)
+	// ── Token store ───────────────────────────────────────────────────────────
+	tStore := tokenstore.NewStore(rdb)
 
-	// Repositories and services
-	var userRepo *users.Repository = users.NewRepository(db)
-	var userService *users.Service = users.NewService(userRepo)
-	var userHandler *users.Handler = users.NewHandler(userService)
-
-	var authHandler *auth.Handler = auth.NewHandler(userService, cfg.JWTSecret, tStore)
-
-	// Books
-	var bookRepo *books.Repository = books.NewRepository(db)
-	var bookService *books.Service = books.NewService(bookRepo, db)
-
+	// ── Repositories ──────────────────────────────────────────────────────────
+	userRepo := users.NewRepository(db)
+	bookRepo := books.NewRepository(db)
 	libraryRepo := library.NewRepository(db)
-	libraryService := library.NewService(libraryRepo, bookRepo, db) // if you inject edition/book lookup via booksRepo
-	libraryHandler := library.NewHandler(libraryService)
+	collectionRepo := collections.NewRepository(db)
+	reviewRepo := reviews.NewRepository(db)
+	notifRepo := notifications.NewRepository(db)
+	readingRepo := reading.NewRepository(db)
+	shelfRepo := shelves.NewRepository(db)
+	contributorRepo := contributors.NewRepository(db)
+	seriesRepo := series.NewRepository(db)
+	genreRepo := genres.NewRepository(db)
 
-	// Moderation
-	var moderationService *moderation.Service = moderation.NewService(bookRepo)
-	var moderationHandler *moderation.Handler = moderation.NewHandler(moderationService)
+	// ── Services ──────────────────────────────────────────────────────────────
+	userSvc := users.NewService(userRepo)
+	bookSvc := books.NewService(bookRepo, db)
+	librarySvc := library.NewService(libraryRepo)
+	collectionSvc := collections.NewService(collectionRepo)
+	reviewSvc := reviews.NewService(reviewRepo)
+	notifSvc := notifications.NewService(notifRepo)
+	readingSvc := reading.NewService(readingRepo)
+	shelfSvc := shelves.NewService(shelfRepo)
+	contributorSvc := contributors.NewService(contributorRepo)
+	seriesSvc := series.NewService(seriesRepo)
+	genreSvc := genres.NewService(genreRepo)
+	lookupSvc := lookup.NewService(cfg.GoogleBooksAPIKey)
+	moderationSvc := moderation.NewService(bookRepo, db)
 
-	// Lookup
-	var lookupService *lookup.Service = lookup.NewService(cfg.GoogleBooksAPIKey)
-	var lookupHandler *lookup.Handler = lookup.NewHandler(lookupService)
+	// ── Handlers ──────────────────────────────────────────────────────────────
+	authHandler := auth.NewHandler(userSvc, cfg.JWTSecret, tStore)
+	userHandler := users.NewHandler(userSvc)
+	bookHandler := books.NewHandler(bookSvc, lookupSvc, cfg.CoversDir)
+	lookupHandler := lookup.NewHandler(lookupSvc)
+	libraryHandler := library.NewHandler(librarySvc)
+	collectionHandler := collections.NewHandler(collectionSvc)
+	reviewHandler := reviews.NewHandler(reviewSvc)
+	notifHandler := notifications.NewHandler(notifSvc)
+	readingHandler := reading.NewHandler(readingSvc)
+	shelfHandler := shelves.NewHandler(shelfSvc)
+	contributorHandler := contributors.NewHandler(contributorSvc)
+	seriesHandler := series.NewHandler(seriesSvc)
+	genreHandler := genres.NewHandler(genreSvc)
+	moderationHandler := moderation.NewHandler(moderationSvc)
 
-	// Adapter to satisfy books.LookupService interface
-	var bookHandler *books.Handler = books.NewHandler(bookService, &lookupAdapter{svc: lookupService}, cfg.CoversDir)
+	// Suppress unused variable warnings for services not directly used in routes
+	_ = notifSvc
 
-	// Reviews
-	var reviewRepo *reviews.Repository = reviews.NewRepository(db)
-	var reviewService *reviews.Service = reviews.NewService(reviewRepo)
-	var reviewHandler *reviews.Handler = reviews.NewHandler(reviewService)
-	// Router
-	var r *chi.Mux = chi.NewRouter()
-	//    r := chi.NewRouter()
+	// ── Router ────────────────────────────────────────────────────────────────
+	r := chi.NewRouter()
 
-	// CORS
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedOrigins:   []string{"http://localhost:5173", "https://biblioslibrary.app", "https://biblioslibrary.dev"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
-
+	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
-	r.Use(chimiddleware.RequestID)
 
-	// Routes
-	r.Route("/api/v1", func(r chi.Router) {
-		// Public routes
-		r.Post("/auth/register", authHandler.Register) //Register
-		r.Post("/auth/login", authHandler.Login)       //Login
-
-		// Protected routes
-		r.Group(func(r chi.Router) {
-			r.Use(middleware.Authenticate(cfg.JWTSecret, tStore))
-
-			// Auth
-			r.Get("/auth/me", userHandler.Me)          //User
-			r.Post("/auth/logout", authHandler.Logout) //Logout
-
-			//User
-			r.Put("/users/me/theme", userHandler.UpdateTheme)       //UpdateTheme
-			r.Put("/users/me", userHandler.UpdateUser)              //UpdateUser
-			r.Put("/users/me/email", userHandler.UpdateEmail)       //UpdateEmail
-			r.Delete("/users/me", userHandler.DeleteUser)           //DeleteUser
-			r.Put("/users/me/password", userHandler.UpdatePassword) //UpdatePassword
-
-			// Books - all users
-			r.Get("/books", bookHandler.ListBooks)
-			r.Get("/books/lookup", lookupHandler.Lookup)
-			r.Get("/books/check", bookHandler.CheckDuplicate)
-			r.Post("/books", bookHandler.SubmitBook)
-			r.Get("/users/me/books", bookHandler.GetMyBooks)
-			r.Get("/books/{id}", bookHandler.GetBook)
-			r.Post("/books/copies", bookHandler.AddCopy)
-
-			// library routes now point to libraryHandler:
-			r.Get("/users/me/library", libraryHandler.GetMyLibrary)
-			r.Put("/books/copies/{id}/status", libraryHandler.UpdateReadingStatus)
-			r.Delete("/books/copies/{id}", libraryHandler.RemoveCopy)
-
-			// Reviews
-			r.Get("/books/{id}/reviews", reviewHandler.GetBookReviews)
-			r.Get("/books/{id}/reviews/me", reviewHandler.GetMyReview)
-			r.Post("/books/{id}/reviews", reviewHandler.UpsertReview)
-			r.Put("/books/{id}/reviews/me", reviewHandler.UpdateMyReview)
-			r.Delete("/books/{id}/reviews/me", reviewHandler.DeleteMyReview)
-
-			// Books - moderators and admins only
-			r.Group(func(r chi.Router) {
-				r.Use(middleware.RequireRole(apictx.RoleModerator, apictx.RoleAdmin))
-				r.Put("/books/{id}", bookHandler.UpdateBook)
-				r.Delete("/books/{id}", bookHandler.DeleteBook)
-			})
-		})
-
-		// Moderation routes - moderators and admins only
-		r.Group(func(r chi.Router) {
-			r.Use(middleware.Authenticate(cfg.JWTSecret, tStore))
-			r.Use(middleware.RequireRole(apictx.RoleModerator, apictx.RoleAdmin))
-			r.Get("/moderation/submissions", moderationHandler.ListPending)
-			r.Get("/moderation/submissions/{id}", moderationHandler.GetSubmission)
-			r.Put("/moderation/submissions/{id}/approve", moderationHandler.Approve)
-			r.Put("/moderation/submissions/{id}/reject", moderationHandler.Reject)
-			r.Put("/moderation/submissions/{id}/edit", moderationHandler.EditAndApprove)
-			// Cover image upload
-			r.Post("/books/{id}/cover", bookHandler.UploadCover)
-			// Admin only
-			r.With(middleware.RequireRole(apictx.RoleAdmin)).
-				Post("/admin/backfill-covers", bookHandler.BackfillCovers)
-		})
+	// ── Health check ──────────────────────────────────────────────────────────
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"status":"ok"}`)
 	})
 
-	// Serve uploaded cover images as static files
+	// ── Static covers ─────────────────────────────────────────────────────────
 	if err = os.MkdirAll(cfg.CoversDir, 0755); err != nil {
 		slog.Error("failed to create covers directory", "error", err)
 		os.Exit(1)
 	}
 	r.Handle("/covers/*", http.StripPrefix("/covers/", http.FileServer(http.Dir(cfg.CoversDir))))
 
-	// Swagger UI
-	swaggerDist, _ := fs.Sub(swaggerFiles, "swagger-ui")
-	r.Handle("/api/docs/ui/*", http.StripPrefix("/api/docs/ui", http.FileServer(http.FS(swaggerDist))))
-
-	// OpenAPI spec
-	r.Get("/api/docs/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/yaml")
-		w.Write(openAPISpec)
-	})
-
-	// Health check
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, `{"status":"ok"}`)
+	// ── API v1 ────────────────────────────────────────────────────────────────
+	r.Route("/api/v1", func(r chi.Router) {
+		registerRoutes(r, cfg, tStore,
+			authHandler, userHandler, bookHandler, lookupHandler,
+			libraryHandler, collectionHandler, reviewHandler,
+			notifHandler, readingHandler, shelfHandler,
+			contributorHandler, seriesHandler, genreHandler,
+			moderationHandler,
+		)
 	})
 
 	slog.Info("server starting", "port", cfg.Port)
@@ -237,14 +167,153 @@ func main() {
 	}
 }
 
-type lookupAdapter struct {
-	svc *lookup.Service
-}
+func registerRoutes(
+	r chi.Router,
+	cfg config.Config,
+	tStore *tokenstore.Store,
+	authH *auth.Handler,
+	userH *users.Handler,
+	bookH *books.Handler,
+	lookupH *lookup.Handler,
+	libraryH *library.Handler,
+	collectionH *collections.Handler,
+	reviewH *reviews.Handler,
+	notifH *notifications.Handler,
+	readingH *reading.Handler,
+	shelfH *shelves.Handler,
+	contributorH *contributors.Handler,
+	seriesH *series.Handler,
+	genreH *genres.Handler,
+	moderationH *moderation.Handler,
+) {
+	// ── Public ────────────────────────────────────────────────────────────────
+	r.Post("/auth/register", authH.Register)
+	r.Post("/auth/login", authH.Login)
 
-func (a *lookupAdapter) LookupByISBN(ctx context.Context, isbn string) (string, error) {
-	result, err := a.svc.LookupByISBN(ctx, isbn)
-	if err != nil || result == nil {
-		return "", err
-	}
-	return result.CoverURL, nil
+	// ── Authenticated ─────────────────────────────────────────────────────────
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Authenticate(cfg.JWTSecret, tStore))
+
+		// Auth
+		r.Get("/auth/me", userH.Me)
+		r.Post("/auth/logout", authH.Logout)
+
+		// Users
+		r.Put("/users/me", userH.UpdateProfile)
+		r.Put("/users/me/email", userH.UpdateEmail)
+		r.Put("/users/me/password", userH.UpdatePassword)
+		r.Put("/users/me/theme", userH.UpdateTheme)
+		r.Delete("/users/me", userH.DeleteUser)
+
+		// Books — public catalogue
+		r.Get("/books", bookH.ListBooks)
+		r.Get("/books/lookup", lookupH.Lookup)
+		r.Get("/books/check", bookH.CheckDuplicate)
+		r.Post("/books", bookH.SubmitBook)
+		r.Get("/books/{id}", bookH.GetBook)
+		r.Post("/books/copies", bookH.AddCopy)
+		r.Get("/users/me/books", bookH.GetMyBooks)
+		r.Put("/books/copies/{id}/status", bookH.UpdateCopyStatus)
+		r.Delete("/books/copies/{id}", bookH.RemoveCopy)
+
+		// Libraries
+		r.Get("/libraries", libraryH.ListMyLibraries)
+		r.Post("/libraries", libraryH.CreateLibrary)
+		r.Get("/libraries/public", libraryH.ListPublicLibraries)
+		r.Get("/libraries/{id}", libraryH.GetLibrary)
+		r.Put("/libraries/{id}", libraryH.UpdateLibrary)
+		r.Delete("/libraries/{id}", libraryH.DeleteLibrary)
+		r.Get("/libraries/{id}/members", libraryH.ListMembers)
+		r.Put("/libraries/{id}/members/{userId}", libraryH.UpdateMemberPermissions)
+		r.Delete("/libraries/{id}/members/{userId}", libraryH.RemoveMember)
+		r.Post("/libraries/{id}/invite", libraryH.InviteMember)
+		r.Get("/libraries/{id}/books", libraryH.ListLibraryBooks)
+		r.Post("/libraries/{id}/books", libraryH.AddBookToLibrary)
+		r.Delete("/libraries/{id}/books/{copyId}", libraryH.RemoveBookFromLibrary)
+		r.Get("/users/me/library", libraryH.GetMyLibrary)
+
+		// Invitations
+		r.Get("/invitations", libraryH.ListMyInvitations)
+		r.Post("/invitations/{token}/accept", libraryH.AcceptInvitation)
+		r.Post("/invitations/{token}/decline", libraryH.DeclineInvitation)
+
+		// Collections
+		r.Get("/libraries/{id}/collections", collectionH.List)
+		r.Post("/libraries/{id}/collections", collectionH.Create)
+		r.Get("/libraries/{id}/collections/{collectionId}", collectionH.Get)
+		r.Put("/libraries/{id}/collections/{collectionId}", collectionH.Update)
+		r.Delete("/libraries/{id}/collections/{collectionId}", collectionH.Delete)
+		r.Get("/libraries/{id}/collections/{collectionId}/books", collectionH.ListBooks)
+		r.Post("/libraries/{id}/collections/{collectionId}/books", collectionH.AddBook)
+		r.Delete("/libraries/{id}/collections/{collectionId}/books/{copyId}", collectionH.RemoveBook)
+
+		// Reviews
+		r.Get("/books/{id}/reviews", reviewH.ListPublicReviews)
+		r.Get("/books/{id}/reviews/me", reviewH.GetMyReview)
+		r.Post("/books/{id}/reviews", reviewH.UpsertReview)
+		r.Delete("/books/{id}/reviews/me", reviewH.DeleteMyReview)
+		r.Post("/reviews/{id}/like", reviewH.LikeReview)
+		r.Delete("/reviews/{id}/like", reviewH.UnlikeReview)
+
+		// Notifications
+		r.Get("/notifications", notifH.List)
+		r.Put("/notifications/read-all", notifH.MarkAllRead)
+		r.Put("/notifications/{id}/read", notifH.MarkRead)
+
+		// Reading
+		r.Get("/reading/challenges", readingH.ListChallenges)
+		r.Post("/reading/challenges", readingH.CreateChallenge)
+		r.Delete("/reading/challenges/{id}", readingH.DeleteChallenge)
+		r.Get("/reading/challenges/{id}/progress", readingH.GetProgress)
+		r.Post("/reading/sessions", readingH.LogSession)
+		r.Get("/reading/sessions", readingH.ListSessions)
+		r.Get("/reading/stats", readingH.GetOverallStats)
+		r.Get("/reading/stats/year/{year}", readingH.GetYearStats)
+		r.Get("/reading/stats/month/{year}/{month}", readingH.GetMonthStats)
+
+		// Shelves
+		r.Get("/shelves", shelfH.List)
+		r.Post("/shelves", shelfH.Create)
+		r.Put("/shelves/{id}", shelfH.Rename)
+		r.Delete("/shelves/{id}", shelfH.Delete)
+		r.Get("/shelves/{id}/books", shelfH.ListBooks)
+		r.Post("/shelves/{id}/books", shelfH.AddBook)
+		r.Delete("/shelves/{id}/books/{copyId}", shelfH.RemoveBook)
+
+		// Contributors
+		r.Get("/contributors", contributorH.List)
+		r.Get("/contributors/{id}", contributorH.Get)
+		r.Post("/contributors", contributorH.Create)
+
+		// Series
+		r.Get("/series", seriesH.List)
+		r.Get("/series/{id}", seriesH.Get)
+		r.Post("/series", seriesH.Create)
+
+		// Genres & Moods
+		r.Get("/genres", genreH.ListGenres)
+		r.Post("/genres", genreH.CreateGenre)
+		r.Get("/moods", genreH.ListMoods)
+		r.Post("/moods", genreH.CreateMood)
+
+		// ── Moderator / Admin ─────────────────────────────────────────────────
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RequireRole(apictx.RoleModerator, apictx.RoleAdmin))
+
+			r.Put("/books/{id}", bookH.UpdateBook)
+			r.Delete("/books/{id}", bookH.DeleteBook)
+			r.Post("/books/{id}/cover", bookH.UploadCover)
+
+			r.Get("/moderation/submissions", moderationH.ListPending)
+			r.Get("/moderation/submissions/{id}", moderationH.GetSubmission)
+			r.Put("/moderation/submissions/{id}/approve", moderationH.Approve)
+			r.Put("/moderation/submissions/{id}/reject", moderationH.Reject)
+			r.Put("/moderation/submissions/{id}/edit", moderationH.EditAndApprove)
+			r.Get("/moderation/logs", moderationH.ListLogs)
+
+			// ── Admin only ────────────────────────────────────────────────────
+			r.With(middleware.RequireRole(apictx.RoleAdmin)).
+				Post("/admin/backfill-covers", bookH.BackfillCovers)
+		})
+	})
 }

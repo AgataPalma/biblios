@@ -3,9 +3,9 @@ package reviews
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
+	"github.com/AgataPalma/biblios/internal/httpx"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -18,128 +18,150 @@ func NewHandler(service *Service) *Handler {
 }
 
 // GET /books/{id}/reviews
-func (h *Handler) GetBookReviews(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ListPublicReviews(w http.ResponseWriter, r *http.Request) {
 	bookID := chi.URLParam(r, "id")
+	page, limit := httpx.PaginationParams(r)
 
-	page, limit := 1, 10
-	if p := r.URL.Query().Get("page"); p != "" {
-		if v, err := strconv.Atoi(p); err == nil && v > 0 {
-			page = v
-		}
-	}
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 100 {
-			limit = v
-		}
+	// Caller ID for liked_by_me flag — optional (public endpoint)
+	callerID := ""
+	if claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims); ok {
+		callerID = claims.UserID
 	}
 
-	result, err := h.service.GetBookReviews(r.Context(), bookID, page, limit)
+	resp, err := h.service.ListPublicReviews(r.Context(), bookID, callerID, page, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get reviews")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list reviews")
 		return
 	}
-
-	writeJSON(w, http.StatusOK, result)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // GET /books/{id}/reviews/me
 func (h *Handler) GetMyReview(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-
 	bookID := chi.URLParam(r, "id")
 
-	review, err := h.service.GetMyReview(r.Context(), bookID, claims.UserID)
+	rev, err := h.service.GetMyReview(r.Context(), bookID, claims.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get review")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get review")
 		return
 	}
-	if review == nil {
-		writeJSON(w, http.StatusOK, map[string]interface{}{"review": nil})
+	if rev == nil {
+		httpx.WriteJSON(w, http.StatusOK, nil)
 		return
 	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{"review": review})
+	httpx.WriteJSON(w, http.StatusOK, rev)
 }
 
-type upsertReviewRequest struct {
-	Rating   int     `json:"rating"`
-	Body     *string `json:"body"`
-	IsPublic *bool   `json:"is_public"`
-}
-
-// POST /books/{id}/reviews
+// POST /books/{id}/reviews  — creates or updates the caller's review
 func (h *Handler) UpsertReview(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-
 	bookID := chi.URLParam(r, "id")
 
-	var req upsertReviewRequest
+	var req struct {
+		Rating   float64 `json:"rating"`
+		Body     *string `json:"body"`
+		IsPublic *bool   `json:"is_public"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Rating < 1 || req.Rating > 5 {
-		writeError(w, http.StatusUnprocessableEntity, "rating must be between 1 and 5")
-		return
+	isPublic := true
+	if req.IsPublic != nil {
+		isPublic = *req.IsPublic
 	}
 
-	review, err := h.service.UpsertReview(r.Context(), UpsertReviewInput{
+	rev, err := h.service.UpsertReview(r.Context(), UpsertReviewInput{
 		BookID:   bookID,
 		UserID:   claims.UserID,
 		Rating:   req.Rating,
 		Body:     req.Body,
-		IsPublic: req.IsPublic,
+		IsPublic: isPublic,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save review")
+		switch err.Error() {
+		case "rating must be between 0.0 and 5.0",
+			"rating must be in 0.1 increments",
+			"review body must be 5000 characters or fewer":
+			httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
+		default:
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to save review")
+		}
 		return
 	}
-
-	writeJSON(w, http.StatusOK, review)
-}
-
-// PUT /books/{id}/reviews/me  (alias — same as POST for upsert semantics)
-func (h *Handler) UpdateMyReview(w http.ResponseWriter, r *http.Request) {
-	h.UpsertReview(w, r)
+	httpx.WriteJSON(w, http.StatusOK, rev)
 }
 
 // DELETE /books/{id}/reviews/me
 func (h *Handler) DeleteMyReview(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-
 	bookID := chi.URLParam(r, "id")
 
-	if err := h.service.DeleteReview(r.Context(), bookID, claims.UserID); err != nil {
+	if err := h.service.DeleteMyReview(r.Context(), bookID, claims.UserID); err != nil {
 		if err.Error() == "review not found" {
-			writeError(w, http.StatusNotFound, err.Error())
+			httpx.WriteError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to delete review")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete review")
 		return
 	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"message": "review deleted"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "review deleted"})
 }
 
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+// POST /reviews/{id}/like
+func (h *Handler) LikeReview(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	reviewID := chi.URLParam(r, "id")
+
+	if err := h.service.LikeReview(r.Context(), reviewID, claims.UserID); err != nil {
+		switch err.Error() {
+		case "review not found":
+			httpx.WriteError(w, http.StatusNotFound, err.Error())
+		case "cannot like your own review", "already liked this review":
+			httpx.WriteError(w, http.StatusConflict, err.Error())
+		default:
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to like review")
+		}
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "review liked"})
 }
 
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+// DELETE /reviews/{id}/like
+func (h *Handler) UnlikeReview(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	reviewID := chi.URLParam(r, "id")
+
+	if err := h.service.UnlikeReview(r.Context(), reviewID, claims.UserID); err != nil {
+		switch err.Error() {
+		case "like not found":
+			httpx.WriteError(w, http.StatusNotFound, err.Error())
+		default:
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to unlike review")
+		}
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "review unliked"})
 }
