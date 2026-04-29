@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getBook, addCopy, updateBook, uploadEditionCover, updateReadingStatus, removeCopy, deleteBook, deleteEdition, type UpdateCopyPayload } from '../api/books'
+import { getBook, addCopy, updateBook, uploadEditionCover, updateReadingStatus, removeCopy, deleteBook, deleteEdition, getBookReviews, submitReview, updateMyReview, type UpdateCopyPayload } from '../api/books'
 import { Badge, Card, Modal, Spinner } from '../components'
 import { useAuth } from '../context/AuthContext'
-import type { Book, Edition, UserBook } from '../types'
+import type { Book, Edition, UserBook, Review } from '../types'
 
 const PALETTE = ['#2563eb','#16a34a','#dc2626','#9333ea','#ea580c','#0891b2','#d97706','#4f46e5','#0d9488','#be185d']
 function pickColor(title: string): string {
@@ -119,7 +119,23 @@ export default function BookDetailPage() {
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
     const [deleteEditionId, setDeleteEditionId]     = useState<string | null>(null)
 
+    // Reviews state
+    const [reviewPage, setReviewPage]               = useState(1)
+    const [reviewRating, setReviewRating]           = useState(0)
+    const [reviewBody, setReviewBody]               = useState('')
+    const [reviewPublic, setReviewPublic]           = useState(true)
+    const [reviewEditMode, setReviewEditMode]       = useState(false)
+
     const { data: book, isLoading, isError } = useQuery({ queryKey: ['book', id], queryFn: () => getBook(id!), enabled: !!id })
+
+    // Reviews query
+    const { data: reviewsData, isLoading: reviewsLoading } = useQuery({
+        queryKey: ['reviews', id, reviewPage],
+        queryFn: () => getBookReviews(id!, reviewPage, 10),
+        enabled: !!id,
+    })
+
+    const myReview: Review | undefined = reviewsData?.reviews.find(r => r.user_id === user?.id)
 
     // Find the user's copy from cache (populated when arriving from library)
     const libraryData = queryClient.getQueryData<{ books: UserBook[] }>(['my-library', 1])
@@ -170,6 +186,22 @@ export default function BookDetailPage() {
     const deleteEditionMutation = useMutation({
         mutationFn: (editionId: string) => deleteEdition(id!, editionId),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['book', id] }); setDeleteEditionId(null) },
+    })
+
+    const submitReviewMutation = useMutation({
+        mutationFn: () => submitReview(id!, { rating: reviewRating, body: reviewBody || undefined, is_public: reviewPublic }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['reviews', id] })
+            setReviewRating(0); setReviewBody(''); setReviewPublic(true); setReviewEditMode(false)
+        },
+    })
+
+    const updateReviewMutation = useMutation({
+        mutationFn: () => updateMyReview(id!, { rating: reviewRating, body: reviewBody || undefined, is_public: reviewPublic }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['reviews', id] })
+            setReviewEditMode(false)
+        },
     })
 
     const addCopyMutation = useMutation({
@@ -556,6 +588,130 @@ export default function BookDetailPage() {
                     )}
                 </div>
             </div>
+
+            {/* ── Reviews section ── */}
+            {!editing && (
+                <div style={{ marginTop: '32px' }}>
+                    {/* Header */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                        <div>
+                            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-heading)' }}>
+                                Reviews {reviewsData ? `(${reviewsData.total})` : ''}
+                            </h2>
+                            {reviewsData?.average_rating != null && (
+                                <span style={{ fontSize: '13px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
+                                    ★ {reviewsData.average_rating.toFixed(1)} average
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Write / Edit review form */}
+                    {user && (!myReview || reviewEditMode) && (
+                        <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', padding: '16px', marginBottom: '16px' }}>
+                            <p style={{ margin: '0 0 10px', fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>
+                                {reviewEditMode ? 'Edit your review' : 'Write a review'}
+                            </p>
+                            {/* Star selector */}
+                            <div style={{ display: 'flex', gap: '4px', marginBottom: '10px' }}>
+                                {[1,2,3,4,5].map(star => (
+                                    <button key={star} onClick={() => setReviewRating(star)}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '22px', color: star <= reviewRating ? '#f59e0b' : 'var(--color-border)', padding: '0 2px', transition: 'var(--transition)' }}>
+                                        {star <= reviewRating ? '★' : '☆'}
+                                    </button>
+                                ))}
+                            </div>
+                            <textarea
+                                value={reviewBody}
+                                onChange={e => setReviewBody(e.target.value)}
+                                placeholder="Share your thoughts (optional)…"
+                                rows={3}
+                                maxLength={5000}
+                                style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', background: 'var(--input-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', color: 'var(--color-text)', fontFamily: 'var(--font-body)', fontSize: '13px', resize: 'vertical', outline: 'none', marginBottom: '10px' }}
+                            />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={reviewPublic} onChange={e => setReviewPublic(e.target.checked)} />
+                                    Public
+                                </label>
+                                <button
+                                    disabled={reviewRating === 0 || submitReviewMutation.isPending || updateReviewMutation.isPending}
+                                    onClick={() => reviewEditMode ? updateReviewMutation.mutate() : submitReviewMutation.mutate()}
+                                    style={{ padding: '7px 16px', background: 'var(--color-primary)', color: 'var(--color-primary-text)', border: 'none', borderRadius: 'var(--border-radius)', fontSize: '13px', fontFamily: 'var(--font-body)', fontWeight: 600, cursor: reviewRating === 0 ? 'not-allowed' : 'pointer', opacity: reviewRating === 0 ? 0.5 : 1, transition: 'var(--transition)' }}>
+                                    {submitReviewMutation.isPending || updateReviewMutation.isPending ? 'Saving…' : 'Submit'}
+                                </button>
+                                {reviewEditMode && (
+                                    <button onClick={() => setReviewEditMode(false)}
+                                        style={{ padding: '7px 12px', background: 'transparent', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', fontSize: '13px', fontFamily: 'var(--font-body)', cursor: 'pointer' }}>
+                                        Cancel
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Review list */}
+                    {reviewsLoading ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '24px' }}><Spinner /></div>
+                    ) : (
+                        <div>
+                            {(reviewsData?.reviews ?? []).map((review: Review) => {
+                                const isOwn = review.user_id === user?.id
+                                return (
+                                    <div key={review.id} style={{ padding: '16px 0', borderBottom: '1px solid var(--color-border)', display: 'flex', gap: '12px' }}>
+                                        {/* Avatar */}
+                                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', flexShrink: 0, overflow: 'hidden' }}>
+                                            {review.avatar_url
+                                                ? <img src={review.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                : <span>{(review.username ?? '?').charAt(0).toUpperCase()}</span>
+                                            }
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>{review.username ?? 'Anonymous'}</span>
+                                                    <span style={{ color: '#f59e0b', fontSize: '13px' }}>{'★'.repeat(Math.round(review.rating))}{'☆'.repeat(5 - Math.round(review.rating))}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
+                                                        {new Date(review.created_at).toLocaleDateString()}
+                                                    </span>
+                                                    {isOwn && !reviewEditMode && (
+                                                        <button onClick={() => { setReviewRating(review.rating); setReviewBody(review.body ?? ''); setReviewPublic(review.is_public); setReviewEditMode(true) }}
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--color-primary)', fontFamily: 'var(--font-body)', padding: 0 }}>
+                                                            Edit
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {review.body && (
+                                                <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)', lineHeight: 1.5 }}>{review.body}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                )
+                            })}
+
+                            {/* Pagination */}
+                            {reviewsData && reviewsData.total > 10 && (
+                                <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '16px' }}>
+                                    <button disabled={reviewPage === 1} onClick={() => setReviewPage(p => p - 1)}
+                                        style={{ padding: '6px 12px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', cursor: reviewPage === 1 ? 'not-allowed' : 'pointer', opacity: reviewPage === 1 ? 0.4 : 1, color: 'var(--color-text)', fontSize: '13px', fontFamily: 'var(--font-body)' }}>
+                                        ←
+                                    </button>
+                                    <span style={{ padding: '6px 12px', fontSize: '13px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
+                                        Page {reviewPage}
+                                    </span>
+                                    <button disabled={reviewsData.reviews.length < 10} onClick={() => setReviewPage(p => p + 1)}
+                                        style={{ padding: '6px 12px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--border-radius)', cursor: reviewsData.reviews.length < 10 ? 'not-allowed' : 'pointer', opacity: reviewsData.reviews.length < 10 ? 0.4 : 1, color: 'var(--color-text)', fontSize: '13px', fontFamily: 'var(--font-body)' }}>
+                                        →
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Add to library modal */}
             <Modal isOpen={addOpen} onClose={() => setAddOpen(false)} title={`Add to library — ${book.title}`} confirmLabel="Add to library" onConfirm={() => addCopyMutation.mutate()} isLoading={addCopyMutation.isPending} size="sm">

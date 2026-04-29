@@ -186,3 +186,219 @@ export interface ReviewsResponse {
     limit: number
     average_rating?: number   // computed by the backend
 }
+
+// ── Notification ──────────────────────────────────────────────────────────────
+export interface Notification {
+    id: string
+    user_id: string
+    type: 'invitation' | 'review_like' | 'library_activity' | string
+    title: string
+    body: string
+    data?: Record<string, unknown>
+    is_read: boolean
+    created_at: string
+}
+
+export interface NotificationsResponse {
+    notifications: Notification[]
+    total: number
+    unread_count: number
+}
+
+// ── Shelf ─────────────────────────────────────────────────────────────────────
+export interface Shelf {
+    id: string
+    user_id: string
+    name: string
+    created_at: string
+    updated_at: string
+    book_count?: number
+}
+
+export interface ShelfBook {
+    copy_id: string
+    shelf_id: string
+    added_at: string
+    book: Book
+    edition_id: string
+    format: string
+    cover_url?: string
+    reading_status: string
+}
+
+export interface ShelfDetailResponse {
+    shelf: Shelf
+    books: ShelfBook[]
+    total: number
+}
+
+// ── Collection ────────────────────────────────────────────────────────────────
+export interface Collection {
+    id: string
+    library_id: string
+    name: string
+    description?: string
+    visibility: 'public' | 'private'
+    is_collaborative: boolean
+    created_by: string
+    created_at: string
+    updated_at: string
+    book_count?: number
+}
+
+export interface CollectionBook {
+    book_id: string
+    collection_id: string
+    added_by: string
+    added_at: string
+    book: Book
+}
+
+export interface CollectionsResponse {
+    collections: Collection[]
+    total: number
+}
+
+export interface CollectionDetailResponse {
+    collection: Collection
+    books: CollectionBook[]
+    total: number
+}
+
+// ── Cooperative Library ───────────────────────────────────────────────────────
+export interface CooperativeLibrary {
+    id: string
+    owner_id: string
+    name: string
+    description?: string
+    visibility: 'private' | 'semi_public' | 'public'
+    is_cooperative: boolean
+    created_at: string
+    updated_at: string
+    member_count?: number
+    book_count?: number
+}
+
+export interface LibraryMember {
+    user_id: string
+    library_id: string
+    username: string
+    avatar_url?: string
+    role: 'owner' | 'member'
+    can_view: boolean
+    can_add: boolean
+    can_remove: boolean
+    can_edit: boolean
+    can_invite: boolean
+    can_manage_members: boolean
+    joined_at: string
+}
+
+export interface LibrariesResponse {
+    libraries: CooperativeLibrary[]
+    total: number
+}
+
+export interface LibraryDetailResponse {
+    library: CooperativeLibrary
+    members: LibraryMember[]
+}
+
+// ── Series ────────────────────────────────────────────────────────────────────
+export interface Series {
+    id: string
+    name: string
+    description?: string
+    status: 'pending' | 'approved'
+    created_at: string
+    updated_at: string
+    book_count?: number
+}
+
+export interface SeriesBook {
+    book_id: string
+    series_id: string
+    position?: number
+    status: string
+    book: Book
+}
+
+export interface SeriesResponse {
+    series: Series[]
+    total: number
+    page: number
+    limit: number
+}
+
+export interface SeriesDetailResponse {
+    series: Series
+    books: SeriesBook[]
+}
+
+// ── Reading ───────────────────────────────────────────────────────────────────
+export interface ReadingChallenge {
+    id: string
+    user_id: string
+    title: string
+    start_date: string
+    end_date: string
+    goal_books: number
+    current_books: number
+    status: 'active' | 'completed' | 'failed'
+    created_at: string
+    updated_at: string
+}
+
+export interface ReadingSession {
+    id: string
+    user_id: string
+    copy_id: string
+    date: string
+    pages_read: number
+    notes?: string
+    created_at: string
+    book_title?: string
+}
+
+export interface ChallengesResponse {
+    challenges: ReadingChallenge[]
+    total: number
+}
+
+export interface SessionsResponse {
+    sessions: ReadingSession[]
+    total: number
+}
+
+// ── Book List ─────────────────────────────────────────────────────────────────
+export interface BookList {
+    id: string
+    user_id: string
+    title: string
+    description?: string
+    tags?: string[]
+    visibility: 'private' | 'public'
+    created_at: string
+    updated_at: string
+    book_count?: number
+}
+
+export interface BookListItem {
+    book_id: string
+    list_id: string
+    commentary?: string
+    sort_order: number
+    added_at: string
+    book: Book
+}
+
+export interface ListsResponse {
+    lists: BookList[]
+    total: number
+}
+
+export interface ListDetailResponse {
+    list: BookList
+    books: BookListItem[]
+    total: number
+}

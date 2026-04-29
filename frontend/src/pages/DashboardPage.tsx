@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
 import { Spinner, EmptyState } from '../components'
 import { getMyLibrary, listBooks } from '../api/books'
+import { getChallenges } from '../api/reading'
+import { getNotifications } from '../api/notifications'
 import type { UserBook } from '../types'
 
 // ── Book cover placeholder ─────────────────────────────────────────────────────
@@ -105,15 +107,41 @@ export default function DashboardPage() {
         queryFn: () => listBooks(1, 6),
     })
 
+    const { data: challengesData } = useQuery({
+        queryKey: ['reading-challenges'],
+        queryFn: getChallenges,
+    })
+
+    const { data: notifData } = useQuery({
+        queryKey: ['notifications'],
+        queryFn: () => getNotifications(1, 3),
+    })
+
     const allBooks: UserBook[] = libraryData?.books ?? []
     const inProgress  = allBooks.filter(b => b.reading_status === 'reading')
     const recentBooks = allBooks.slice(0, 5)
+
+    const now = new Date()
+    const thisYear  = now.getFullYear()
+    const thisMonth = now.getMonth()
 
     const stats = {
         reading:     allBooks.filter(b => b.reading_status === 'reading').length,
         read:        allBooks.filter(b => b.reading_status === 'read').length,
         wantToRead:  allBooks.filter(b => b.reading_status === 'want_to_read').length,
+        readThisYear: allBooks.filter(b => {
+            if (b.reading_status !== 'read' || !b.finished_reading_at) return false
+            return new Date(b.finished_reading_at).getFullYear() === thisYear
+        }).length,
+        readThisMonth: allBooks.filter(b => {
+            if (b.reading_status !== 'read' || !b.finished_reading_at) return false
+            const d = new Date(b.finished_reading_at)
+            return d.getFullYear() === thisYear && d.getMonth() === thisMonth
+        }).length,
     }
+
+    const activeChallenges = (challengesData?.challenges ?? []).filter(c => c.status === 'active').slice(0, 3)
+    const unreadNotifs = (notifData?.notifications ?? []).filter(n => !n.is_read).slice(0, 3)
 
     const [selectedId, setSelectedId] = useState<string | null>(null)
     const selectedBook = selectedId
@@ -314,14 +342,16 @@ export default function DashboardPage() {
             {/* ── Stats row ─────────────────────────────────────────── */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
                 gap: '12px',
                 marginBottom: '20px',
             }}>
                 {[
-                    { label: 'Reading',      value: loadingLibrary ? '…' : String(stats.reading),    icon: '📖', accent: 'var(--color-success)' },
-                    { label: 'Finished',     value: loadingLibrary ? '…' : String(stats.read),       icon: '✅', accent: 'var(--color-primary)' },
-                    { label: 'Want to read', value: loadingLibrary ? '…' : String(stats.wantToRead), icon: '🔖', accent: 'var(--color-accent)'  },
+                    { label: 'Reading',         value: loadingLibrary ? '…' : String(stats.reading),       icon: '📖', accent: 'var(--color-success)' },
+                    { label: 'Finished',         value: loadingLibrary ? '…' : String(stats.read),         icon: '✅', accent: 'var(--color-primary)' },
+                    { label: 'Want to read',     value: loadingLibrary ? '…' : String(stats.wantToRead),   icon: '🔖', accent: 'var(--color-accent)'  },
+                    { label: 'Read this year',   value: loadingLibrary ? '…' : String(stats.readThisYear), icon: '📅', accent: 'var(--color-success)' },
+                    { label: 'Read this month',  value: loadingLibrary ? '…' : String(stats.readThisMonth),icon: '🗓️', accent: 'var(--color-primary)' },
                 ].map(s => (
                     <div
                         key={s.label}
@@ -528,6 +558,81 @@ export default function DashboardPage() {
                         ))
                     )}
                 </div>
+            </div>
+
+            {/* ── Active Challenges widget ───────────────────────────── */}
+            {activeChallenges.length > 0 && (
+                <div style={{
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--border-radius)',
+                    overflow: 'hidden',
+                    marginTop: '20px',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--color-border)' }}>
+                        <h2 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-heading)' }}>
+                            Active Challenges
+                        </h2>
+                        <button onClick={() => navigate('/reading')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: 'var(--color-primary)', fontFamily: 'var(--font-body)' }}>
+                            View all →
+                        </button>
+                    </div>
+                    <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {activeChallenges.map(challenge => {
+                            const pct = challenge.goal_books > 0
+                                ? Math.min(100, Math.round((challenge.current_books / challenge.goal_books) * 100))
+                                : 0
+                            return (
+                                <div key={challenge.id}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>{challenge.title}</span>
+                                        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>{challenge.current_books} / {challenge.goal_books} books ({pct}%)</span>
+                                    </div>
+                                    <div style={{ height: '6px', background: 'var(--color-surface-alt)', borderRadius: '3px', overflow: 'hidden' }}>
+                                        <div style={{ height: '100%', width: `${pct}%`, background: pct === 100 ? 'var(--color-success)' : 'var(--color-primary)', borderRadius: '3px', transition: 'width 0.3s ease' }} />
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Notifications preview widget ───────────────────────── */}
+            <div style={{
+                background: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--border-radius)',
+                overflow: 'hidden',
+                marginTop: '20px',
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--color-border)' }}>
+                    <h2 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-heading)' }}>
+                        Notifications
+                    </h2>
+                    <button onClick={() => navigate('/notifications')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: 'var(--color-primary)', fontFamily: 'var(--font-body)' }}>
+                        View all →
+                    </button>
+                </div>
+                {unreadNotifs.length === 0 ? (
+                    <div style={{ padding: '16px 20px' }}>
+                        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
+                            You're all caught up! 🎉
+                        </p>
+                    </div>
+                ) : (
+                    unreadNotifs.map((notif, i) => (
+                        <div key={notif.id} onClick={() => navigate('/notifications')} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px 20px', borderBottom: i < unreadNotifs.length - 1 ? '1px solid var(--color-border)' : 'none', cursor: 'pointer', background: 'color-mix(in srgb, var(--color-primary) 4%, transparent)', transition: 'var(--transition)' }}
+                            onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-alt)'}
+                            onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = 'color-mix(in srgb, var(--color-primary) 4%, transparent)'}
+                        >
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notif.title}</p>
+                                <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{notif.body}</p>
+                            </div>
+                        </div>
+                    ))
+                )}
             </div>
         </div>
     )

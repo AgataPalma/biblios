@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { getNotifications } from '../api/notifications'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { logout } from '../api/auth'
@@ -27,14 +28,20 @@ interface NavItem {
     path: string
     icon: string
     modOnly?: boolean
+    badge?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
-    { label: 'Dashboard',   path: '/',            icon: '⊞' },
-    { label: 'Biblios Catalogue',       path: '/books',        icon: '📖' },
-    { label: 'My Library',  path: '/library',      icon: '🗄️' },
-    { label: 'Add Book', path: '/books/add',    icon: '➕' },
-    { label: 'Moderation',  path: '/moderation',   icon: '🛡️', modOnly: true },
+    { label: 'Dashboard',         path: '/',             icon: '⊞' },
+    { label: 'Biblios Catalogue', path: '/books',        icon: '📖' },
+    { label: 'My Library',        path: '/library',      icon: '🗄️' },
+    { label: 'Add Book',          path: '/books/add',    icon: '➕' },
+    { label: 'Notifications',     path: '/notifications',icon: '🔔', badge: true },
+    { label: 'Shelves',           path: '/shelves',      icon: '🗂️' },
+    { label: 'Libraries',         path: '/libraries',    icon: '🏛️' },
+    { label: 'Series',            path: '/series',       icon: '📚' },
+    { label: 'Reading',           path: '/reading',      icon: '📊' },
+    { label: 'Moderation',        path: '/moderation',   icon: '🛡️', modOnly: true },
 ]
 
 export default function Sidebar() {
@@ -58,6 +65,15 @@ export default function Sidebar() {
             navigate('/login')
         },
     })
+
+    // ── Notification unread count (polls every 60s) ───────────────────────────
+    const { data: notifData } = useQuery({
+        queryKey: ['notifications'],
+        queryFn: () => getNotifications(1, 1),
+        enabled: isAuthenticated,
+        refetchInterval: 60_000,
+    })
+    const unreadCount = notifData?.unread_count ?? 0
 
     const themeMutation = useMutation({
         mutationFn: (id: ThemeId) => apiClient.put('/users/me/theme', { theme: id }),
@@ -239,10 +255,52 @@ export default function Sidebar() {
                                 }
                             }}
                         >
-                            <span style={{ fontSize: '15px', width: collapsed ? 'auto' : '18px', textAlign: 'center', flexShrink: 0 }}>
+                            <span style={{ fontSize: '15px', width: collapsed ? 'auto' : '18px', textAlign: 'center', flexShrink: 0, position: 'relative' }}>
                                 {item.icon}
+                                {item.badge && unreadCount > 0 && collapsed && (
+                                    <span style={{
+                                        position: 'absolute',
+                                        top: '-4px',
+                                        right: '-4px',
+                                        minWidth: '14px',
+                                        height: '14px',
+                                        background: 'var(--color-error)',
+                                        color: '#fff',
+                                        borderRadius: '999px',
+                                        fontSize: '9px',
+                                        fontWeight: 700,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: '0 3px',
+                                        lineHeight: 1,
+                                        fontFamily: 'var(--font-body)',
+                                    }}>
+                                        {unreadCount > 99 ? '99+' : unreadCount}
+                                    </span>
+                                )}
                             </span>
                             {!collapsed && <span style={{ flex: 1 }}>{item.label}</span>}
+                            {!collapsed && item.badge && unreadCount > 0 && (
+                                <span style={{
+                                    minWidth: '18px',
+                                    height: '18px',
+                                    background: 'var(--color-error)',
+                                    color: '#fff',
+                                    borderRadius: '999px',
+                                    fontSize: '10px',
+                                    fontWeight: 700,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '0 4px',
+                                    lineHeight: 1,
+                                    fontFamily: 'var(--font-body)',
+                                    flexShrink: 0,
+                                }}>
+                                    {unreadCount > 99 ? '99+' : unreadCount}
+                                </span>
+                            )}
                             {!collapsed && item.modOnly && (
                                 <span style={{
                                     fontSize: '9px',

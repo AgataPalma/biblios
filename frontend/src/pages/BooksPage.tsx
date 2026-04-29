@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listBooks, addToWishlist, addCopy } from '../api/books'
@@ -42,6 +42,17 @@ export default function BooksPage() {
     const [viewMode,    setViewMode]    = useState<ViewMode>('grid')
     const [noCoverOnly, setNoCoverOnly] = useState(false)
 
+    // Advanced server-side filters
+    const [format,       setFormat]       = useState('')
+    const [language,     setLanguage]     = useState('')
+    const [yearFrom,     setYearFrom]     = useState('')
+    const [yearTo,       setYearTo]       = useState('')
+    const [publisher,    setPublisher]    = useState('')
+    const [showAdvanced, setShowAdvanced] = useState(false)
+
+    // Helper to reset page on any filter change
+    function resetPage() { setPage(1) }
+
     // Add-to-library modal
     const [addTarget,          setAddTarget]          = useState<Book | null>(null)
     const [selectedEditionId,  setSelectedEditionId]  = useState('')
@@ -49,8 +60,17 @@ export default function BooksPage() {
     const [addError,           setAddError]           = useState('')
 
     const { data, isLoading, isError } = useQuery({
-        queryKey: ['books', page],
-        queryFn: () => listBooks(page, limit),
+        queryKey: ['books', page, { search, genre, sort, format, language, yearFrom, yearTo, publisher }],
+        queryFn: () => listBooks(page, limit, {
+            q:         search    || undefined,
+            genre:     genre     || undefined,
+            format:    format    || undefined,
+            language:  language  || undefined,
+            year_from: yearFrom  ? parseInt(yearFrom)  : undefined,
+            year_to:   yearTo    ? parseInt(yearTo)    : undefined,
+            publisher: publisher || undefined,
+            sort:      sort === 'default' ? undefined : sort as 'relevance' | 'year_desc' | 'year_asc' | 'title_asc',
+        }),
         placeholderData: prev => prev,
     })
 
@@ -64,29 +84,9 @@ export default function BooksPage() {
         onError: () => setAddError('Failed to add to library. Please try again.'),
     })
 
-    // Client-side filter + sort
+    // Server returns filtered/sorted books — use directly
     const books = data?.books ?? []
-    const allGenres = useMemo(
-        () => [...new Set(books.flatMap(b => (b.genres ?? []).map(g => g.name)))].sort(),
-        [books],
-    )
-
-    const filtered = useMemo(() => {
-        let list = books
-        if (search)      list = list.filter(b =>
-            b.title.toLowerCase().includes(search.toLowerCase()) ||
-            b.authors.some(a => a.name.toLowerCase().includes(search.toLowerCase()))
-        )
-        if (genre) list = list.filter(b => (b.genres ?? []).some(g => g.name === genre))
-        if (noCoverOnly) list = list.filter(b => !(b.editions?.[0]?.cover_url))
-        switch (sort) {
-            case 'title_asc':  list = [...list].sort((a, b) => a.title.localeCompare(b.title)); break
-            case 'title_desc': list = [...list].sort((a, b) => b.title.localeCompare(a.title)); break
-            case 'newest':     list = [...list].sort((a, b) => b.created_at.localeCompare(a.created_at)); break
-            case 'oldest':     list = [...list].sort((a, b) => a.created_at.localeCompare(b.created_at)); break
-        }
-        return list
-    }, [books, search, genre, noCoverOnly, sort])
+    const filtered = noCoverOnly ? books.filter(b => !(b.editions?.[0]?.cover_url)) : books
 
     const totalPages = data ? Math.ceil(data.total / limit) : 1
 
@@ -175,7 +175,7 @@ export default function BooksPage() {
                     type="text"
                     placeholder="Search title or author…"
                     value={search}
-                    onChange={e => setSearch(e.target.value)}
+                    onChange={e => { setSearch(e.target.value); resetPage() }}
                     style={{
                         flex: '1 1 180px',
                         padding: '8px 10px',
@@ -190,10 +190,13 @@ export default function BooksPage() {
                 />
 
                 {/* Genre */}
-                <select
+                <input
+                    type="text"
+                    placeholder="Genre…"
                     value={genre}
-                    onChange={e => setGenre(e.target.value)}
+                    onChange={e => { setGenre(e.target.value); resetPage() }}
                     style={{
+                        width: '120px',
                         padding: '8px 10px',
                         background: 'var(--input-bg)',
                         border: '1px solid var(--color-border)',
@@ -201,16 +204,14 @@ export default function BooksPage() {
                         color: 'var(--color-text)',
                         fontSize: '13px',
                         fontFamily: 'var(--font-body)',
+                        outline: 'none',
                     }}
-                >
-                    <option value="">All genres</option>
-                    {allGenres.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
+                />
 
                 {/* Sort */}
                 <select
                     value={sort}
-                    onChange={e => setSort(e.target.value as SortKey)}
+                    onChange={e => { setSort(e.target.value as SortKey); resetPage() }}
                     style={{
                         padding: '8px 10px',
                         background: 'var(--input-bg)',
@@ -223,10 +224,29 @@ export default function BooksPage() {
                 >
                     <option value="default">Default order</option>
                     <option value="title_asc">Title A → Z</option>
-                    <option value="title_desc">Title Z → A</option>
-                    <option value="newest">Newest first</option>
-                    <option value="oldest">Oldest first</option>
+                    <option value="year_desc">Newest first</option>
+                    <option value="year_asc">Oldest first</option>
+                    <option value="relevance">Relevance</option>
                 </select>
+
+                {/* Advanced filters toggle */}
+                <button
+                    onClick={() => setShowAdvanced(v => !v)}
+                    style={{
+                        padding: '8px 12px',
+                        background: showAdvanced ? 'var(--color-primary)' : 'var(--color-surface-alt)',
+                        color: showAdvanced ? 'var(--color-primary-text)' : 'var(--color-text-muted)',
+                        border: `1px solid ${showAdvanced ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                        borderRadius: 'var(--border-radius)',
+                        fontSize: '12px',
+                        fontFamily: 'var(--font-body)',
+                        cursor: 'pointer',
+                        transition: 'var(--transition)',
+                        whiteSpace: 'nowrap',
+                    }}
+                >
+                    {showAdvanced ? '▲ Filters' : '▼ Filters'}
+                </button>
 
                 {/* Mod/admin: no-cover filter */}
                 {canModerate && (
@@ -277,6 +297,147 @@ export default function BooksPage() {
                     ))}
                 </div>
             </div>
+
+            {/* ── Advanced Filters panel ── */}
+            {showAdvanced && (
+                <div style={{
+                    display: 'flex',
+                    gap: '10px',
+                    marginBottom: '20px',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--border-radius)',
+                    padding: '12px 14px',
+                    borderTop: 'none',
+                    borderTopLeftRadius: 0,
+                    borderTopRightRadius: 0,
+                    marginTop: '-20px',
+                }}>
+                    {/* Format */}
+                    <select
+                        value={format}
+                        onChange={e => { setFormat(e.target.value); resetPage() }}
+                        style={{
+                            padding: '7px 10px',
+                            background: 'var(--input-bg)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--border-radius)',
+                            color: 'var(--color-text)',
+                            fontSize: '13px',
+                            fontFamily: 'var(--font-body)',
+                        }}
+                    >
+                        <option value="">All formats</option>
+                        <option value="hardcover">Hardcover</option>
+                        <option value="paperback">Paperback</option>
+                        <option value="ebook">eBook</option>
+                        <option value="audiobook">Audiobook</option>
+                    </select>
+
+                    {/* Language */}
+                    <select
+                        value={language}
+                        onChange={e => { setLanguage(e.target.value); resetPage() }}
+                        style={{
+                            padding: '7px 10px',
+                            background: 'var(--input-bg)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--border-radius)',
+                            color: 'var(--color-text)',
+                            fontSize: '13px',
+                            fontFamily: 'var(--font-body)',
+                        }}
+                    >
+                        <option value="">All languages</option>
+                        <option value="en">English</option>
+                        <option value="pt">Portuguese</option>
+                        <option value="es">Spanish</option>
+                        <option value="fr">French</option>
+                        <option value="de">German</option>
+                    </select>
+
+                    {/* Year from */}
+                    <input
+                        type="number"
+                        placeholder="Year from"
+                        value={yearFrom}
+                        onChange={e => { setYearFrom(e.target.value); resetPage() }}
+                        style={{
+                            width: '100px',
+                            padding: '7px 10px',
+                            background: 'var(--input-bg)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--border-radius)',
+                            color: 'var(--color-text)',
+                            fontSize: '13px',
+                            fontFamily: 'var(--font-body)',
+                            outline: 'none',
+                        }}
+                    />
+
+                    {/* Year to */}
+                    <input
+                        type="number"
+                        placeholder="Year to"
+                        value={yearTo}
+                        onChange={e => { setYearTo(e.target.value); resetPage() }}
+                        style={{
+                            width: '100px',
+                            padding: '7px 10px',
+                            background: 'var(--input-bg)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--border-radius)',
+                            color: 'var(--color-text)',
+                            fontSize: '13px',
+                            fontFamily: 'var(--font-body)',
+                            outline: 'none',
+                        }}
+                    />
+
+                    {/* Publisher */}
+                    <input
+                        type="text"
+                        placeholder="Publisher…"
+                        value={publisher}
+                        onChange={e => { setPublisher(e.target.value); resetPage() }}
+                        style={{
+                            flex: '1 1 140px',
+                            padding: '7px 10px',
+                            background: 'var(--input-bg)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--border-radius)',
+                            color: 'var(--color-text)',
+                            fontSize: '13px',
+                            fontFamily: 'var(--font-body)',
+                            outline: 'none',
+                        }}
+                    />
+
+                    {/* Clear advanced filters */}
+                    <button
+                        onClick={() => {
+                            setFormat(''); setLanguage(''); setYearFrom(''); setYearTo(''); setPublisher('')
+                            resetPage()
+                        }}
+                        style={{
+                            padding: '7px 12px',
+                            background: 'transparent',
+                            color: 'var(--color-text-muted)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--border-radius)',
+                            fontSize: '12px',
+                            fontFamily: 'var(--font-body)',
+                            cursor: 'pointer',
+                            transition: 'var(--transition)',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        Clear
+                    </button>
+                </div>
+            )}
 
             {/* ── Content ── */}
             {isLoading ? (

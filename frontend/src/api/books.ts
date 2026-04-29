@@ -9,6 +9,18 @@ export interface BooksResponse {
     limit: number
 }
 
+export interface BookFilters {
+    q?: string
+    genre?: string
+    format?: string
+    language?: string
+    year_from?: number
+    year_to?: number
+    publisher?: string
+    series_id?: string
+    sort?: 'relevance' | 'year_desc' | 'year_asc' | 'title_asc'
+}
+
 export interface UpdateBookPayload {
     title?: string
     authors?: string[]
@@ -67,8 +79,18 @@ export interface SubmitBookPayload {
     location?: string | null
 }
 
-export async function listBooks(page: number = 1, limit: number = 20): Promise<BooksResponse> {
-    const response = await apiClient.get<BooksResponse>(`/books?page=${page}&limit=${limit}`)
+export async function listBooks(
+    page: number = 1,
+    limit: number = 20,
+    filters?: BookFilters,
+): Promise<BooksResponse> {
+    const params: Record<string, string | number> = { page, limit }
+    if (filters) {
+        Object.entries(filters).forEach(([k, v]) => {
+            if (v !== undefined && v !== '') params[k] = v as string | number
+        })
+    }
+    const response = await apiClient.get<BooksResponse>('/books', { params })
     return response.data
 }
 

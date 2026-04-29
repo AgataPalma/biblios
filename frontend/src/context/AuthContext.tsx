@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setIsLoading(false)
         }
         loadUser()
-    }, [])
+    }, [setTheme])
 
     function setAuth(newToken: string, newUser: User): void {
         localStorage.setItem('token', newToken)

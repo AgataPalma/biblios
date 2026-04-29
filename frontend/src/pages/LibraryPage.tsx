@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { getMyLibrary, updateReadingStatus, removeCopy } from '../api/books'
+import { getShelves, addBookToShelf } from '../api/shelves'
 import { Card, Badge, Spinner, EmptyState, Modal } from '../components'
 import { useTheme } from '../context/ThemeContext'
 import type { UserBook } from '../types'
@@ -61,6 +62,8 @@ export default function LibraryPage() {
     const [filter,       setFilter]       = useState<string>('all')
     const [viewMode,     setViewMode]     = useState<ViewMode>('catalogue')
     const [removeTarget, setRemoveTarget] = useState<UserBook | null>(null)
+    const [shelfTarget,  setShelfTarget]  = useState<UserBook | null>(null)
+    const [selectedShelfId, setSelectedShelfId] = useState('')
     const LIMIT = 20
 
     const { data, isLoading } = useQuery({
@@ -81,6 +84,22 @@ export default function LibraryPage() {
             await queryClient.invalidateQueries({ queryKey: ['my-library'] })
             await queryClient.invalidateQueries({ queryKey: ['my-books'] })
             setRemoveTarget(null)
+        },
+    })
+
+    // Shelf picker
+    const { data: shelvesData } = useQuery({
+        queryKey: ['shelves'],
+        queryFn: getShelves,
+        enabled: !!shelfTarget,
+    })
+
+    const addToShelfMutation = useMutation({
+        mutationFn: () => addBookToShelf(selectedShelfId, shelfTarget!.copy_id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['shelves'] })
+            setShelfTarget(null)
+            setSelectedShelfId('')
         },
     })
 
@@ -174,6 +193,7 @@ export default function LibraryPage() {
                     onNavigate={(bookId, copyId) => navigate(`/books/${bookId}?copy_id=${copyId}`)}
                     onStatusChange={(copyId, status) => statusMutation.mutate({ copyId, status })}
                     onRemove={b => setRemoveTarget(b)}
+                    onAddToShelf={b => { setShelfTarget(b); setSelectedShelfId('') }}
                 />
             ) : viewMode === 'card' ? (
                 <CardView
@@ -181,6 +201,7 @@ export default function LibraryPage() {
                     onStatusChange={(copyId, status) => statusMutation.mutate({ copyId, status })}
                     onNavigate={(bookId, copyId) => navigate(`/books/${bookId}?copy_id=${copyId}`)}
                     onRemove={b => setRemoveTarget(b)}
+                    onAddToShelf={b => { setShelfTarget(b); setSelectedShelfId('') }}
                     isUpdating={statusMutation.isPending}
                 />
             ) : viewMode === 'bookcase' ? (
@@ -195,6 +216,7 @@ export default function LibraryPage() {
                     onStatusChange={(copyId, status) => statusMutation.mutate({ copyId, status })}
                     onNavigate={(bookId, copyId) => navigate(`/books/${bookId}?copy_id=${copyId}`)}
                     onRemove={b => setRemoveTarget(b)}
+                    onAddToShelf={b => { setShelfTarget(b); setSelectedShelfId('') }}
                     isUpdating={statusMutation.isPending}
                 />
             )}
@@ -224,6 +246,35 @@ export default function LibraryPage() {
                     Remove <strong>{removeTarget?.book.title}</strong> from your library? This cannot be undone.
                 </p>
             </Modal>
+
+            {/* ── Shelf picker modal ── */}
+            <Modal
+                isOpen={!!shelfTarget}
+                onClose={() => { setShelfTarget(null); setSelectedShelfId('') }}
+                title={`Add to shelf — ${shelfTarget?.book.title ?? ''}`}
+                confirmLabel="Add to shelf"
+                onConfirm={() => addToShelfMutation.mutate()}
+                isLoading={addToShelfMutation.isPending}
+                size="sm"
+            >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {!shelvesData || shelvesData.length === 0 ? (
+                        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
+                            No shelves yet. Create one from the Shelves page.
+                        </p>
+                    ) : (
+                        shelvesData.map(shelf => (
+                            <label key={shelf.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '8px', borderRadius: 'var(--border-radius)', background: selectedShelfId === shelf.id ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'transparent', transition: 'var(--transition)' }}>
+                                <input type="radio" name="shelf" value={shelf.id} checked={selectedShelfId === shelf.id} onChange={() => setSelectedShelfId(shelf.id)} style={{ cursor: 'pointer' }} />
+                                <span style={{ fontSize: '13px', color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>
+                                    {shelf.name}
+                                    <span style={{ marginLeft: '6px', fontSize: '11px', color: 'var(--color-text-muted)' }}>({shelf.book_count ?? 0} books)</span>
+                                </span>
+                            </label>
+                        ))
+                    )}
+                </div>
+            </Modal>
         </div>
     )
 }
@@ -231,12 +282,13 @@ export default function LibraryPage() {
 // ─── View 1: Catalogue (tall cover cards, like BooksPage) ─────────────────────
 
 function CatalogueView({
-                           books, onNavigate, onStatusChange, onRemove,
+                           books, onNavigate, onStatusChange, onRemove, onAddToShelf,
                        }: {
     books: UserBook[]
     onNavigate: (bookId: string, copyId: string) => void
     onStatusChange: (copyId: string, status: 'reading' | 'read' | 'want_to_read') => void
     onRemove: (b: UserBook) => void
+    onAddToShelf: (b: UserBook) => void
 }) {
     return (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '16px' }}>
@@ -294,6 +346,15 @@ function CatalogueView({
                             >
                                 🗑️
                             </button>
+                            <button
+                                onClick={() => onAddToShelf(ub)}
+                                title="Add to shelf"
+                                style={{ padding: '6px 8px', border: 'none', background: 'transparent', color: 'var(--color-text-muted)', fontSize: '13px', cursor: 'pointer', opacity: 0.5, transition: 'var(--transition)' }}
+                                onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.opacity = '1'}
+                                onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.opacity = '0.5'}
+                            >
+                                🗂️
+                            </button>
                         </div>
                     </div>
                 )
@@ -305,12 +366,13 @@ function CatalogueView({
 // ─── View 2: Card (cover + info side by side) ─────────────────────────────────
 
 function CardView({
-                      books, onStatusChange, onNavigate, onRemove, isUpdating,
+                      books, onStatusChange, onNavigate, onRemove, onAddToShelf, isUpdating,
                   }: {
     books: UserBook[]
     onStatusChange: (copyId: string, status: 'reading' | 'read' | 'want_to_read') => void
     onNavigate: (bookId: string, copyId: string) => void
     onRemove: (b: UserBook) => void
+    onAddToShelf: (b: UserBook) => void
     isUpdating: boolean
 }) {
     return (
@@ -322,6 +384,7 @@ function CardView({
                     onStatusChange={status => onStatusChange(ub.copy_id, status)}
                     onNavigate={() => onNavigate(ub.book.id, ub.copy_id)}
                     onRemove={() => onRemove(ub)}
+                    onAddToShelf={() => onAddToShelf(ub)}
                     isUpdating={isUpdating}
                 />
             ))}
@@ -448,12 +511,13 @@ function adjustBrightness(hex: string, delta: number): string {
 // ─── View 4: List ─────────────────────────────────────────────────────────────
 
 function ListView({
-                      books, onStatusChange, onNavigate, onRemove, isUpdating,
+                      books, onStatusChange, onNavigate, onRemove, onAddToShelf, isUpdating,
                   }: {
     books: UserBook[]
     onStatusChange: (copyId: string, status: 'reading' | 'read' | 'want_to_read') => void
     onNavigate: (bookId: string, copyId: string) => void
     onRemove: (b: UserBook) => void
+    onAddToShelf: (b: UserBook) => void
     isUpdating: boolean
 }) {
     return (
@@ -476,6 +540,7 @@ function ListView({
                     onStatusChange={status => onStatusChange(ub.copy_id, status)}
                     onNavigate={() => onNavigate(ub.book.id, ub.copy_id)}
                     onRemove={() => onRemove(ub)}
+                    onAddToShelf={() => onAddToShelf(ub)}
                     isUpdating={isUpdating}
                 />
             ))}
@@ -484,13 +549,14 @@ function ListView({
 }
 
 function ListRow({
-                     userBook, isLast, onStatusChange, onNavigate, onRemove, isUpdating,
+                     userBook, isLast, onStatusChange, onNavigate, onRemove, onAddToShelf, isUpdating,
                  }: {
     userBook: UserBook
     isLast: boolean
     onStatusChange: (status: 'reading' | 'read' | 'want_to_read') => void
     onNavigate: () => void
     onRemove: () => void
+    onAddToShelf: () => void
     isUpdating: boolean
 }) {
     const { book } = userBook
@@ -558,6 +624,15 @@ function ListRow({
             >
                 🗑️
             </button>
+            <button
+                onClick={onAddToShelf}
+                style={{ width: '28px', height: '28px', flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: '14px', opacity: 0.5, transition: 'var(--transition)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.opacity = '1'}
+                onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.opacity = '0.5'}
+                title="Add to shelf"
+            >
+                🗂️
+            </button>
         </div>
     )
 }
@@ -565,12 +640,13 @@ function ListRow({
 // ─── Library Book Card (card view) ───────────────────────────────────────────
 
 function LibraryBookCard({
-                             userBook, onStatusChange, onNavigate, onRemove, isUpdating,
+                             userBook, onStatusChange, onNavigate, onRemove, onAddToShelf, isUpdating,
                          }: {
     userBook: UserBook
     onStatusChange: (status: 'reading' | 'read' | 'want_to_read') => void
     onNavigate: () => void
     onRemove: () => void
+    onAddToShelf: () => void
     isUpdating: boolean
 }) {
     const { book } = userBook
@@ -627,6 +703,15 @@ function LibraryBookCard({
                     title="Remove from library"
                 >
                     🗑️
+                </button>
+                <button
+                    onClick={onAddToShelf}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: '14px', padding: '4px', opacity: 0.6, transition: 'var(--transition)' }}
+                    onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.opacity = '1'}
+                    onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.opacity = '0.6'}
+                    title="Add to shelf"
+                >
+                    🗂️
                 </button>
             </div>
         </Card>
