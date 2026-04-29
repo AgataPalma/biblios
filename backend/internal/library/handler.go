@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
+	"github.com/AgataPalma/biblios/internal/books"
 	"github.com/AgataPalma/biblios/internal/httpx"
 	"github.com/go-chi/chi/v5"
 )
@@ -357,7 +358,7 @@ func (h *Handler) ListLibraryBooks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if userBooks == nil {
-		userBooks = []interface{}{}
+		userBooks = []books.UserBook{}
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"books": userBooks,
@@ -447,7 +448,7 @@ func (h *Handler) GetMyLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if userBooks == nil {
-		userBooks = []interface{}{}
+		userBooks = []books.UserBook{}
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"library": lib,
