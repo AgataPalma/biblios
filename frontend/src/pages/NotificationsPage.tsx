@@ -56,20 +56,21 @@ interface NotificationItemProps {
 
 function NotificationItem({ notification, onMarkRead, isPending }: NotificationItemProps) {
     const { variant, label } = typeBadge(notification.type)
+    const isRead = notification.read_at !== null
 
     return (
         <div
-            onClick={() => !notification.is_read && !isPending && onMarkRead(notification.id)}
+            onClick={() => !isRead && !isPending && onMarkRead(notification.id)}
             style={{
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: '12px',
                 padding: '14px 16px',
-                background: notification.is_read
+                background: isRead
                     ? 'var(--color-surface)'
                     : 'rgba(var(--color-primary-rgb, 0, 0, 0), 0.08)',
                 borderBottom: '1px solid var(--color-border)',
-                cursor: notification.is_read ? 'default' : 'pointer',
+                cursor: isRead ? 'default' : 'pointer',
                 transition: 'var(--transition)',
             }}
         >
@@ -84,7 +85,7 @@ function NotificationItem({ notification, onMarkRead, isPending }: NotificationI
                     style={{
                         margin: 0,
                         fontSize: '14px',
-                        fontWeight: notification.is_read ? 400 : 600,
+                        fontWeight: isRead ? 400 : 600,
                         color: 'var(--color-text)',
                         fontFamily: 'var(--font-body)',
                         lineHeight: 1.4,
@@ -134,8 +135,13 @@ export default function NotificationsPage() {
     const queryClient = useQueryClient()
 
     const { data, isLoading, isError } = useQuery({
-        queryKey: ['notifications'],
+        queryKey: ['notifications', { page: 1, limit: 50 }],
         queryFn: () => getNotifications(1, 50),
+    })
+
+    const { data: unreadData } = useQuery({
+        queryKey: ['notifications', { page: 1, limit: 1, read: false }],
+        queryFn: () => getNotifications(1, 1, { read: false }),
     })
 
     const markReadMutation = useMutation({
@@ -146,25 +152,23 @@ export default function NotificationsPage() {
     })
 
     const markAllReadMutation = useMutation({
-        mutationFn: (ids: string[]) => markAllNotificationsRead(ids),
+        mutationFn: markAllNotificationsRead,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['notifications'] })
         },
     })
 
     const notifications = data?.notifications ?? []
-    const unreadCount = data?.unread_count ?? 0
+    const unreadCount = unreadData?.total ?? 0
 
     const filtered =
         activeTab === 'all'
             ? notifications
             : notifications.filter(n => n.type === activeTab)
 
-    const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id)
-
     function handleMarkAllRead() {
-        if (unreadIds.length === 0) return
-        markAllReadMutation.mutate(unreadIds)
+        if (unreadCount === 0) return
+        markAllReadMutation.mutate()
     }
 
     return (

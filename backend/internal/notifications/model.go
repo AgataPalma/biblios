@@ -12,7 +12,7 @@ type Notification struct {
 	Title     string          `json:"title"`
 	Body      string          `json:"body"`
 	Data      json.RawMessage `json:"data,omitempty"`
-	ReadAt    *time.Time      `json:"read_at,omitempty"`
+	ReadAt    *time.Time      `json:"read_at"`
 	CreatedAt time.Time       `json:"created_at"`
 }
 

@@ -68,12 +68,12 @@ export default function Sidebar() {
 
     // ── Notification unread count (polls every 60s) ───────────────────────────
     const { data: notifData } = useQuery({
-        queryKey: ['notifications'],
-        queryFn: () => getNotifications(1, 1),
+        queryKey: ['notifications', { page: 1, limit: 1, read: false }],
+        queryFn: () => getNotifications(1, 1, { read: false }),
         enabled: isAuthenticated,
         refetchInterval: 60_000,
     })
-    const unreadCount = notifData?.unread_count ?? 0
+    const unreadCount = notifData?.total ?? 0
 
     const themeMutation = useMutation({
         mutationFn: (id: ThemeId) => apiClient.put('/users/me/theme', { theme: id }),
