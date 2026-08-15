@@ -2,6 +2,7 @@ package library
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,11 +10,40 @@ import (
 	"github.com/AgataPalma/biblios/internal/books"
 )
 
-type Service struct {
-	repo *Repository
+var (
+	ErrLibraryNotFound  = errors.New("library not found")
+	ErrAccessDenied     = errors.New("access denied")
+	ErrNotMember        = errors.New("not a member of this library")
+	ErrCopyNotOwned     = errors.New("copy not found")
+	ErrBookNotInLibrary = errors.New("book copy not found in library")
+)
+
+type libraryRepository interface {
+	CreateLibrary(ctx context.Context, ownerID, name string, description *string, isCooperative bool, visibility string) (Library, error)
+	FindLibraryByID(ctx context.Context, id string) (*Library, error)
+	ListUserLibraries(ctx context.Context, userID string) ([]Library, error)
+	ListPublicLibraries(ctx context.Context, page, limit int) ([]Library, int, error)
+	UpdateLibrary(ctx context.Context, id string, name, description, visibility *string) (Library, error)
+	DeleteLibrary(ctx context.Context, id string) error
+	GetMember(ctx context.Context, libraryID, userID string) (*LibraryMember, error)
+	ListMembers(ctx context.Context, libraryID string) ([]LibraryMember, error)
+	UpdateMemberPermissions(ctx context.Context, libraryID, userID string, perms LibraryMember) error
+	RemoveMember(ctx context.Context, libraryID, userID string) error
+	CreateInvitation(ctx context.Context, libraryID, invitedBy, invitedEmail string, expiresAt time.Time) (LibraryInvitation, error)
+	AcceptInvitation(ctx context.Context, token, userID string) error
+	DeclineInvitation(ctx context.Context, token string) error
+	ListUserInvitations(ctx context.Context, userID string) ([]LibraryInvitation, error)
+	AddBookCopyToLibrary(ctx context.Context, libraryID, userID, copyID string) error
+	RemoveBookCopyFromLibrary(ctx context.Context, libraryID, userID, copyID string) error
+	ListLibraryBooks(ctx context.Context, libraryID string, page, limit int) ([]LibraryBook, int, error)
+	ListUserLibraryBooks(ctx context.Context, libraryID, userID string, page, limit int) ([]books.UserBook, int, error)
 }
 
-func NewService(repo *Repository) *Service {
+type Service struct {
+	repo libraryRepository
+}
+
+func NewService(repo libraryRepository) *Service {
 	return &Service{repo: repo}
 }
 
@@ -45,7 +75,7 @@ func (s *Service) getMemberOrFail(ctx context.Context, libraryID, userID string)
 		return nil, fmt.Errorf("check membership: %w", err)
 	}
 	if m == nil {
-		return nil, fmt.Errorf("not a member of this library")
+		return nil, ErrNotMember
 	}
 	return m, nil
 }
@@ -65,32 +95,35 @@ func (s *Service) CreateLibrary(ctx context.Context, userID string, input Create
 	return s.repo.CreateLibrary(ctx, userID, input.Name, input.Description, input.IsCooperative, input.Visibility)
 }
 
-// GetLibrary returns a library if the caller is allowed to view it.
-// - Owners and members can always view.
-// - Public libraries are visible to everyone.
-// - Semi-public and private libraries require membership.
+func publicLibraryView(library Library) Library {
+	library.OwnerID = ""
+	return library
+}
+
+// GetLibrary returns the full library to members with can_view permission.
+// Public libraries are visible to other callers with internal owner data
+// redacted. Semi-public and private libraries require can_view membership.
 func (s *Service) GetLibrary(ctx context.Context, libraryID, userID string) (*Library, error) {
 	lib, err := s.repo.FindLibraryByID(ctx, libraryID)
 	if err != nil {
 		return nil, err
 	}
 	if lib == nil {
-		return nil, fmt.Errorf("library not found")
+		return nil, ErrLibraryNotFound
 	}
 
-	if lib.Visibility == "public" {
-		return lib, nil
-	}
-
-	// For private / semi_public: caller must be a member
 	m, err := s.repo.GetMember(ctx, libraryID, userID)
 	if err != nil {
 		return nil, err
 	}
-	if m == nil {
-		return nil, fmt.Errorf("access denied")
+	if m != nil && m.CanView {
+		return lib, nil
 	}
-	return lib, nil
+	if lib.Visibility == "public" {
+		publicView := publicLibraryView(*lib)
+		return &publicView, nil
+	}
+	return nil, ErrAccessDenied
 }
 
 func (s *Service) ListMyLibraries(ctx context.Context, userID string) ([]Library, error) {
@@ -98,7 +131,14 @@ func (s *Service) ListMyLibraries(ctx context.Context, userID string) ([]Library
 }
 
 func (s *Service) ListPublicLibraries(ctx context.Context, page, limit int) ([]Library, int, error) {
-	return s.repo.ListPublicLibraries(ctx, page, limit)
+	libraries, total, err := s.repo.ListPublicLibraries(ctx, page, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	for i := range libraries {
+		libraries[i] = publicLibraryView(libraries[i])
+	}
+	return libraries, total, nil
 }
 
 // UpdateLibrary is restricted to the library owner.
@@ -117,6 +157,17 @@ func (s *Service) UpdateLibrary(ctx context.Context, libraryID, userID string, i
 		return Library{}, fmt.Errorf("invalid visibility")
 	}
 	return s.repo.UpdateLibrary(ctx, libraryID, input.Name, input.Description, input.Visibility)
+}
+
+func (s *Service) DeleteLibrary(ctx context.Context, libraryID, userID string) error {
+	m, err := s.getMemberOrFail(ctx, libraryID, userID)
+	if err != nil {
+		return err
+	}
+	if !m.IsOwner {
+		return ErrAccessDenied
+	}
+	return s.repo.DeleteLibrary(ctx, libraryID)
 }
 
 // ─── Invitations ──────────────────────────────────────────────────────────────
@@ -204,9 +255,12 @@ func (s *Service) RemoveMember(ctx context.Context, libraryID, requesterID, targ
 }
 
 func (s *Service) ListMembers(ctx context.Context, libraryID, requesterID string) ([]LibraryMember, error) {
-	// Must be a member to list members
-	if _, err := s.getMemberOrFail(ctx, libraryID, requesterID); err != nil {
+	member, err := s.getMemberOrFail(ctx, libraryID, requesterID)
+	if err != nil {
 		return nil, err
+	}
+	if !member.CanView {
+		return nil, ErrAccessDenied
 	}
 	return s.repo.ListMembers(ctx, libraryID)
 }
@@ -222,7 +276,7 @@ func (s *Service) AddBookToLibrary(ctx context.Context, libraryID, userID, copyI
 	if !m.CanAdd {
 		return fmt.Errorf("you do not have permission to add books to this library")
 	}
-	return s.repo.AddBookCopyToLibrary(ctx, libraryID, copyID)
+	return s.repo.AddBookCopyToLibrary(ctx, libraryID, userID, copyID)
 }
 
 // RemoveBookFromLibrary requires can_remove permission.
@@ -234,17 +288,40 @@ func (s *Service) RemoveBookFromLibrary(ctx context.Context, libraryID, userID, 
 	if !m.CanRemove {
 		return fmt.Errorf("you do not have permission to remove books from this library")
 	}
-	return s.repo.RemoveBookCopyFromLibrary(ctx, libraryID, copyID)
+	return s.repo.RemoveBookCopyFromLibrary(ctx, libraryID, userID, copyID)
 }
 
-// ListLibraryBooks checks visibility before returning books.
-func (s *Service) ListLibraryBooks(ctx context.Context, libraryID, userID string, page, limit int) ([]books.UserBook, int, error) {
+// ListLibraryBooks returns catalogue-only data for shared/public library
+// browsing. Physical copy IDs are included only for members with can_view.
+func (s *Service) ListLibraryBooks(ctx context.Context, libraryID, userID string, page, limit int) ([]LibraryBook, int, error) {
 	lib, err := s.GetLibrary(ctx, libraryID, userID)
 	if err != nil {
 		return nil, 0, err
 	}
-	if lib == nil {
-		return nil, 0, fmt.Errorf("library not found")
+	books, total, err := s.repo.ListLibraryBooks(ctx, libraryID, page, limit)
+	if err != nil {
+		return nil, 0, err
 	}
-	return s.repo.ListLibraryBooks(ctx, libraryID, page, limit)
+
+	// GetLibrary clears OwnerID only for the redacted public view. Members with
+	// can_view receive the full library, so no second membership query is needed.
+	if lib.OwnerID == "" {
+		for i := range books {
+			books[i].CopyID = ""
+		}
+	}
+	return books, total, nil
+}
+
+// ListMyLibraryBooks returns private copy state only for copies owned by the
+// caller. It is used by /users/me/library, never by shared/public endpoints.
+func (s *Service) ListMyLibraryBooks(ctx context.Context, libraryID, userID string, page, limit int) ([]books.UserBook, int, error) {
+	member, err := s.getMemberOrFail(ctx, libraryID, userID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !member.CanView {
+		return nil, 0, ErrAccessDenied
+	}
+	return s.repo.ListUserLibraryBooks(ctx, libraryID, userID, page, limit)
 }

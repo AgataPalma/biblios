@@ -4,7 +4,7 @@ import "time"
 
 type Library struct {
 	ID            string     `json:"id"`
-	OwnerID       string     `json:"owner_id"`
+	OwnerID       string     `json:"owner_id,omitempty"`
 	Name          string     `json:"name"`
 	Description   *string    `json:"description,omitempty"`
 	IsCooperative bool       `json:"is_cooperative"`
@@ -13,6 +13,22 @@ type Library struct {
 	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// LibraryBook is safe to return from shared and public library endpoints. It
+// deliberately excludes the copy owner's reading progress, notes, borrowing
+// details, location, and other personal state.
+type LibraryBook struct {
+	LibraryID string    `json:"library_id"`
+	CopyID    string    `json:"copy_id,omitempty"`
+	BookID    string    `json:"book_id"`
+	EditionID string    `json:"edition_id"`
+	Title     string    `json:"title"`
+	Authors   []string  `json:"authors"`
+	Format    string    `json:"format"`
+	Language  *string   `json:"language,omitempty"`
+	CoverURL  *string   `json:"cover_url,omitempty"`
+	AddedAt   time.Time `json:"added_at"`
 }
 
 type LibraryMember struct {
