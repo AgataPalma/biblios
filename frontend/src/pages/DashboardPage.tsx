@@ -113,8 +113,8 @@ export default function DashboardPage() {
     })
 
     const { data: notifData } = useQuery({
-        queryKey: ['notifications'],
-        queryFn: () => getNotifications(1, 3),
+        queryKey: ['notifications', { page: 1, limit: 3, read: false }],
+        queryFn: () => getNotifications(1, 3, { read: false }),
     })
 
     const allBooks: UserBook[] = libraryData?.books ?? []
@@ -141,7 +141,7 @@ export default function DashboardPage() {
     }
 
     const activeChallenges = (challengesData?.challenges ?? []).filter(c => c.status === 'active').slice(0, 3)
-    const unreadNotifs = (notifData?.notifications ?? []).filter(n => !n.is_read).slice(0, 3)
+    const unreadNotifs = (notifData?.notifications ?? []).filter(n => n.read_at === null).slice(0, 3)
 
     const [selectedId, setSelectedId] = useState<string | null>(null)
     const selectedBook = selectedId

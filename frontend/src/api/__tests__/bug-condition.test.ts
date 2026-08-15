@@ -72,18 +72,38 @@ describe('Bug 1 — Notification read state', () => {
 
         // The backend returns `read_at`, not `is_read`.
         // On unfixed code, `is_read` is `undefined` (falsy) for both — this assertion fails.
-        expect((unread as Record<string, unknown>).read_at).toBe(null)
-        expect((read as Record<string, unknown>).read_at).not.toBe(null)
+        expect(unread.read_at).toBe(null)
+        expect(read.read_at).not.toBe(null)
 
         // Derived unread check: read_at === null means unread
-        const isUnread = (unread as Record<string, unknown>).read_at === null
-        const isRead = (read as Record<string, unknown>).read_at !== null
+        const isUnread = unread.read_at === null
+        const isRead = read.read_at !== null
         expect(isUnread).toBe(true)
         expect(isRead).toBe(true)
 
         // On unfixed code, `is_read` does not exist on the type — it is `undefined`.
         // The fixed type must NOT have `is_read` as a boolean field.
         expect('is_read' in unread).toBe(false)
+    })
+
+    it('should forward unread and type filters to the backend', async () => {
+        mock.onGet('/notifications').reply(200, {
+            notifications: [],
+            total: 0,
+            page: 2,
+            limit: 1,
+        })
+
+        const { getNotifications } = await import('../notifications')
+        await getNotifications(2, 1, { read: false, type: 'library_invitation' })
+
+        expect(mock.history.get).toHaveLength(1)
+        expect(mock.history.get[0].params).toEqual({
+            page: 2,
+            limit: 1,
+            read: false,
+            type: 'library_invitation',
+        })
     })
 })
 
@@ -113,9 +133,8 @@ describe('Bug 2 — Mark all read endpoint', () => {
 
         // On unfixed code, this function takes `ids: string[]` and fires N individual requests.
         // On fixed code, it takes no ids and fires one bulk request.
-        // We call it with an empty array to test the fixed signature.
         // The fixed function should call PUT /notifications/read-all regardless.
-        await markAllNotificationsRead([])
+        await markAllNotificationsRead()
 
         // On unfixed code: readAllRequests.length === 0, individualReadRequests.length === 0
         // (no requests fired because ids array is empty — but the function signature is wrong)
@@ -137,7 +156,7 @@ describe('Bug 2 — Mark all read endpoint', () => {
 
         // On unfixed code with ids=['1','2','3'], it fires 3 individual requests.
         // On fixed code, it fires 0 individual requests (uses bulk endpoint).
-        await markAllNotificationsRead(['1', '2', '3'])
+        await markAllNotificationsRead()
 
         // On unfixed code: individualReadRequests.length === 3 — this assertion fails.
         expect(individualReadRequests.length).toBe(0)

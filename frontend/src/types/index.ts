@@ -202,6 +202,8 @@ export interface Notification {
 export interface NotificationsResponse {
     notifications: Notification[]
     total: number
+    page: number
+    limit: number
 }
 
 // ── Shelf ─────────────────────────────────────────────────────────────────────
