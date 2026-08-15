@@ -101,7 +101,7 @@ func main() {
 	seriesSvc := series.NewService(seriesRepo)
 	genreSvc := genres.NewService(genreRepo)
 	lookupSvc := lookup.NewService(cfg.GoogleBooksAPIKey)
-	moderationSvc := moderation.NewService(bookRepo, db)
+	moderationSvc := moderation.NewService(bookRepo, libraryRepo, db)
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	authHandler := auth.NewHandler(userSvc, cfg.JWTSecret, tStore)

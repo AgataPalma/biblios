@@ -195,14 +195,13 @@ export interface Notification {
     title: string
     body: string
     data?: Record<string, unknown>
-    is_read: boolean
+    read_at: string | null
     created_at: string
 }
 
 export interface NotificationsResponse {
     notifications: Notification[]
     total: number
-    unread_count: number
 }
 
 // ── Shelf ─────────────────────────────────────────────────────────────────────
@@ -238,7 +237,7 @@ export interface Collection {
     library_id: string
     name: string
     description?: string
-    visibility: 'public' | 'private'
+    is_public: boolean
     is_collaborative: boolean
     created_by: string
     created_at: string
@@ -247,22 +246,26 @@ export interface Collection {
 }
 
 export interface CollectionBook {
-    book_id: string
+    book_copy_id: string
     collection_id: string
     added_by: string
     added_at: string
-    book: Book
-}
-
-export interface CollectionsResponse {
-    collections: Collection[]
-    total: number
+    title: string
+    authors: string[]
+    cover_url: string | null
 }
 
 export interface CollectionDetailResponse {
-    collection: Collection
-    books: CollectionBook[]
-    total: number
+    id: string
+    library_id: string
+    name: string
+    description?: string
+    is_public: boolean
+    is_collaborative: boolean
+    created_by: string
+    created_at: string
+    updated_at: string
+    book_count?: number
 }
 
 // ── Cooperative Library ───────────────────────────────────────────────────────
@@ -283,8 +286,7 @@ export interface LibraryMember {
     user_id: string
     library_id: string
     username: string
-    avatar_url?: string
-    role: 'owner' | 'member'
+    is_owner: boolean
     can_view: boolean
     can_add: boolean
     can_remove: boolean
@@ -292,16 +294,6 @@ export interface LibraryMember {
     can_invite: boolean
     can_manage_members: boolean
     joined_at: string
-}
-
-export interface LibrariesResponse {
-    libraries: CooperativeLibrary[]
-    total: number
-}
-
-export interface LibraryDetailResponse {
-    library: CooperativeLibrary
-    members: LibraryMember[]
 }
 
 // ── Series ────────────────────────────────────────────────────────────────────
@@ -317,10 +309,11 @@ export interface Series {
 
 export interface SeriesBook {
     book_id: string
-    series_id: string
-    position?: number
-    status: string
-    book: Book
+    series_id?: string
+    title: string
+    authors: string[]
+    cover_url: string | null
+    series_position: number | null
 }
 
 export interface SeriesResponse {
@@ -331,7 +324,13 @@ export interface SeriesResponse {
 }
 
 export interface SeriesDetailResponse {
-    series: Series
+    id: string
+    name: string
+    description?: string
+    status: 'pending' | 'approved'
+    created_at: string
+    updated_at: string
+    book_count?: number
     books: SeriesBook[]
 }
 
@@ -339,30 +338,28 @@ export interface SeriesDetailResponse {
 export interface ReadingChallenge {
     id: string
     user_id: string
-    title: string
-    start_date: string
-    end_date: string
-    goal_books: number
-    current_books: number
-    status: 'active' | 'completed' | 'failed'
+    year: number
+    goal: number
     created_at: string
-    updated_at: string
 }
 
 export interface ReadingSession {
     id: string
     user_id: string
     copy_id: string
-    date: string
-    pages_read: number
-    notes?: string
+    logged_date: string
+    pages_read: number | null
+    note: string | null
     created_at: string
-    book_title?: string
 }
 
-export interface ChallengesResponse {
-    challenges: ReadingChallenge[]
-    total: number
+export interface ChallengeProgress {
+    challenge: ReadingChallenge
+    books_read: number
+    books_remaining: number
+    progress_pct: number
+    monthly_pace: number
+    projected_end?: string
 }
 
 export interface SessionsResponse {

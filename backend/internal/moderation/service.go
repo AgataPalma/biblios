@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AgataPalma/biblios/internal/books"
+	"github.com/AgataPalma/biblios/internal/library"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,12 +24,13 @@ type ModerationLog struct {
 }
 
 type Service struct {
-	repo *books.Repository
-	db   *pgxpool.Pool
+	repo        *books.Repository
+	libraryRepo *library.Repository
+	db          *pgxpool.Pool
 }
 
-func NewService(repo *books.Repository, db *pgxpool.Pool) *Service {
-	return &Service{repo: repo, db: db}
+func NewService(repo *books.Repository, libraryRepo *library.Repository, db *pgxpool.Pool) *Service {
+	return &Service{repo: repo, libraryRepo: libraryRepo, db: db}
 }
 
 // ListPending returns all pending submissions with pagination.
@@ -87,6 +89,25 @@ func (s *Service) Approve(ctx context.Context, submissionID, moderatorID string)
 		copy, err := txRepo.InsertCopy(ctx, *sub.EditionID, sub.SubmittedBy, nil, books.CopyOptions{})
 		if err != nil {
 			return fmt.Errorf("create copy on approve: %w", err)
+		}
+
+		// Link the new copy to the submitter's default library (the first library they own)
+		var defaultLibraryID string
+		err = tx.QueryRow(ctx, `
+			SELECT l.id FROM libraries l
+			JOIN library_members lm ON lm.library_id = l.id
+			WHERE lm.user_id = $1 AND lm.is_owner = true AND l.deleted_at IS NULL
+			ORDER BY l.created_at ASC
+			LIMIT 1`, sub.SubmittedBy).Scan(&defaultLibraryID)
+		if err != nil {
+			return fmt.Errorf("find default library: %w", err)
+		}
+
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO library_book_copies (library_id, book_copy_id)
+			VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+			defaultLibraryID, copy.ID); err != nil {
+			return fmt.Errorf("link copy to library: %w", err)
 		}
 
 		// Update submission with copy ID and approved status

@@ -46,3 +46,18 @@ postgres-data/
 # ─── OS ───────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# ─── Ansible / Infra ──────────────────────────────────
+*.retry
+.vault_pass
+vault_pass.txt
+*.vaultpass
+biblios-infra/.vault_pass
+biblios-infra/vault_pass.txt
+
+# local/generated infra files
+biblios-infra/tmp/
+biblios-infra/notes/
+
+# ─── Ansible Vault secrets ────────────────────────────
+biblios-infra/group_vars/*/vault.yml
