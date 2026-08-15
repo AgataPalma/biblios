@@ -52,11 +52,11 @@ func TestAccountDeletionRevokesSessionsAndAnonymizesData(t *testing.T) {
 	username := "delete-user-" + suffix
 	email := username + "@example.test"
 	repo := NewRepository(pool)
-	user, err := repo.CreateUser(ctx, email, username, "integration-test-hash")
+	user, err := repo.CreateUserWithDefaultLibrary(ctx, email, username, "integration-test-hash")
 	if err != nil {
 		t.Fatalf("create deletion test user: %v", err)
 	}
-	inviter, err := repo.CreateUser(ctx, "delete-inviter-"+suffix+"@example.test", "delete-inviter-"+suffix, "integration-test-hash")
+	inviter, err := repo.CreateUserWithDefaultLibrary(ctx, "delete-inviter-"+suffix+"@example.test", "delete-inviter-"+suffix, "integration-test-hash")
 	if err != nil {
 		t.Fatalf("create inviter: %v", err)
 	}
@@ -65,13 +65,6 @@ func TestAccountDeletionRevokesSessionsAndAnonymizesData(t *testing.T) {
 		WHERE id=$1`, user.ID); err != nil {
 		t.Fatalf("add private profile data: %v", err)
 	}
-	if err := repo.CreateDefaultLibrary(ctx, user.ID); err != nil {
-		t.Fatalf("create default library: %v", err)
-	}
-	if err := repo.CreateDefaultLibrary(ctx, inviter.ID); err != nil {
-		t.Fatalf("create inviter library: %v", err)
-	}
-
 	var libraryID, inviterLibraryID string
 	if err := pool.QueryRow(ctx, `SELECT id FROM libraries WHERE owner_id=$1`, user.ID).Scan(&libraryID); err != nil {
 		t.Fatalf("find default library: %v", err)
@@ -295,7 +288,7 @@ func TestAccountDeletionRevokesSessionsAndAnonymizesData(t *testing.T) {
 
 	// Anonymizing the unique fields allows a future account to use the former
 	// email and username without resurrecting the deleted identity.
-	if _, err := repo.CreateUser(ctx, email, username, "new-account-hash"); err != nil {
+	if _, err := repo.CreateUserWithDefaultLibrary(ctx, email, username, "new-account-hash"); err != nil {
 		t.Fatalf("reuse anonymized email and username: %v", err)
 	}
 }

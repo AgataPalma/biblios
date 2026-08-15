@@ -28,33 +28,50 @@ func scanUser(row pgx.Row, u *User) error {
 	)
 }
 
-func (r *Repository) CreateUser(ctx context.Context, email, username, passwordHash string) (User, error) {
-	var u User
-	err := scanUser(r.db.QueryRow(ctx, `
+// CreateUserWithDefaultLibrary creates the account, its default library, and
+// the owner membership as a single transaction. No caller can observe a user
+// without the default inventory required by the rest of the application.
+func (r *Repository) CreateUserWithDefaultLibrary(ctx context.Context, email, username, passwordHash string) (User, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return User{}, fmt.Errorf("begin registration: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var user User
+	if err := scanUser(tx.QueryRow(ctx, `
 		INSERT INTO users (email, username, password_hash)
 		VALUES ($1, $2, $3)
-		RETURNING `+userColumns, email, username, passwordHash), &u)
-	if err != nil {
+		RETURNING `+userColumns, email, username, passwordHash), &user); err != nil {
 		return User{}, fmt.Errorf("create user: %w", err)
 	}
-	return u, nil
-}
 
-func (r *Repository) ExistsByEmail(ctx context.Context, email string) (bool, error) {
-	var n int
-	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE email=$1 AND deleted_at IS NULL`, email).Scan(&n)
-	return n > 0, err
-}
+	var libraryID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO libraries (owner_id, name, description, visibility, is_cooperative)
+		VALUES ($1, 'My Library', 'My personal library', 'private', false)
+		RETURNING id`, user.ID).Scan(&libraryID); err != nil {
+		return User{}, fmt.Errorf("create default library: %w", err)
+	}
 
-func (r *Repository) ExistsByUsername(ctx context.Context, username string) (bool, error) {
-	var n int
-	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE username=$1 AND deleted_at IS NULL`, username).Scan(&n)
-	return n > 0, err
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO library_members
+			(library_id, user_id, is_owner, can_view, can_add, can_remove, can_edit, can_invite, can_manage_members)
+		VALUES ($1, $2, true, true, true, true, true, true, true)`, libraryID, user.ID); err != nil {
+		return User{}, fmt.Errorf("create default library membership: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return User{}, fmt.Errorf("commit registration: %w", err)
+	}
+	return user, nil
 }
 
 func (r *Repository) FindByEmail(ctx context.Context, email string) (User, error) {
 	var u User
-	err := scanUser(r.db.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE email=$1 AND deleted_at IS NULL`, email), &u)
+	err := scanUser(r.db.QueryRow(ctx, `
+		SELECT `+userColumns+` FROM users
+		WHERE LOWER(BTRIM(email))=LOWER(BTRIM($1)) AND deleted_at IS NULL`, email), &u)
 	if err != nil {
 		return User{}, fmt.Errorf("user not found: %w", err)
 	}
@@ -243,35 +260,4 @@ func (r *Repository) SoftDelete(ctx context.Context, userID string) error {
 		return fmt.Errorf("commit account deletion: %w", err)
 	}
 	return nil
-}
-
-// CreateDefaultLibrary creates the default private library for a new user.
-func (r *Repository) CreateDefaultLibrary(ctx context.Context, userID string) error {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback(ctx)
-		}
-	}()
-
-	var libID string
-	err = tx.QueryRow(ctx, `
-		INSERT INTO libraries (owner_id, name, description, visibility, is_cooperative)
-		VALUES ($1, 'My Library', 'My personal library', 'private', false)
-		RETURNING id`, userID).Scan(&libID)
-	if err != nil {
-		return fmt.Errorf("create default library: %w", err)
-	}
-
-	_, err = tx.Exec(ctx, `
-		INSERT INTO library_members (library_id, user_id, is_owner, can_view, can_add, can_remove, can_edit, can_invite, can_manage_members)
-		VALUES ($1, $2, true, true, true, true, true, true, true)`, libID, userID)
-	if err != nil {
-		return fmt.Errorf("add owner to library: %w", err)
-	}
-
-	return tx.Commit(ctx)
 }
