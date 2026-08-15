@@ -2,6 +2,7 @@ package users
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
@@ -51,7 +52,7 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := h.service.UpdateProfile(r.Context(), claims.UserID, req.Username, req.Bio, req.AvatarURL)
 	if err != nil {
-		if err.Error() == "username already taken" {
+		if errors.Is(err, ErrUsernameAlreadyTaken) {
 			httpx.WriteError(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -80,9 +81,13 @@ func (h *Handler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.service.UpdateEmail(r.Context(), claims.UserID, req.CurrentPassword, req.Email); err != nil {
-		switch err.Error() {
-		case "current password is incorrect":
+		switch {
+		case err.Error() == "current password is incorrect":
 			httpx.WriteError(w, http.StatusUnauthorized, err.Error())
+		case errors.Is(err, ErrInvalidEmail):
+			httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
+		case errors.Is(err, ErrEmailAlreadyRegistered):
+			httpx.WriteError(w, http.StatusConflict, err.Error())
 		default:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to update email")
 		}

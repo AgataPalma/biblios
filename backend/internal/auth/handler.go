@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -40,10 +41,10 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.userService.Register(r.Context(), input)
 	if err != nil {
-		switch err.Error() {
-		case "email already registered":
+		switch {
+		case errors.Is(err, users.ErrEmailAlreadyRegistered):
 			httpx.WriteError(w, http.StatusConflict, err.Error())
-		case "username already taken":
+		case errors.Is(err, users.ErrUsernameAlreadyTaken):
 			httpx.WriteError(w, http.StatusConflict, err.Error())
 		default:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to create user")

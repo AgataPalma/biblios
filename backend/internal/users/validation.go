@@ -9,7 +9,7 @@ import (
 var emailRegex = regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$`)
 
 func isEmailValid(e string) bool {
-	return emailRegex.MatchString(strings.ToLower(e))
+	return emailRegex.MatchString(strings.ToLower(strings.TrimSpace(e)))
 }
 
 func ValidateRegisterInput(input RegisterInput) error {
@@ -22,7 +22,7 @@ func ValidateRegisterInput(input RegisterInput) error {
 	if strings.TrimSpace(input.Username) == "" {
 		return fmt.Errorf("username is required")
 	}
-	if len(input.Username) < 3 {
+	if len(strings.TrimSpace(input.Username)) < 3 {
 		return fmt.Errorf("username must be at least 3 characters")
 	}
 	if len(input.Password) < 8 {

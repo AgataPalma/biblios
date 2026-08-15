@@ -4,9 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
+)
+
+var (
+	ErrEmailAlreadyRegistered = errors.New("email already registered")
+	ErrUsernameAlreadyTaken   = errors.New("username already taken")
+	ErrInvalidEmail           = errors.New("invalid email")
 )
 
 type Service struct {
@@ -29,20 +36,10 @@ type LoginInput struct {
 }
 
 func (s *Service) Register(ctx context.Context, input RegisterInput) (User, error) {
-	exists, err := s.repo.ExistsByEmail(ctx, input.Email)
-	if err != nil {
-		return User{}, fmt.Errorf("check email: %w", err)
-	}
-	if exists {
-		return User{}, fmt.Errorf("email already registered")
-	}
-
-	exists, err = s.repo.ExistsByUsername(ctx, input.Username)
-	if err != nil {
-		return User{}, fmt.Errorf("check username: %w", err)
-	}
-	if exists {
-		return User{}, fmt.Errorf("username already taken")
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.Username = strings.TrimSpace(input.Username)
+	if err := ValidateRegisterInput(input); err != nil {
+		return User{}, err
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
@@ -50,21 +47,25 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (User, erro
 		return User{}, fmt.Errorf("hash password: %w", err)
 	}
 
-	user, err := s.repo.CreateUser(ctx, input.Email, input.Username, string(hash))
+	user, err := s.repo.CreateUserWithDefaultLibrary(ctx, input.Email, input.Username, string(hash))
 	if err != nil {
-		return User{}, fmt.Errorf("create user: %w", err)
-	}
-
-	// Create default library
-	if err = s.repo.CreateDefaultLibrary(ctx, user.ID); err != nil {
-		return User{}, fmt.Errorf("create default library: %w", err)
+		var postgresErr *pgconn.PgError
+		if errors.As(err, &postgresErr) && postgresErr.Code == "23505" {
+			switch postgresErr.ConstraintName {
+			case "users_email_key", "users_email_active_lower_key":
+				return User{}, ErrEmailAlreadyRegistered
+			case "users_username_key", "users_username_active_lower_key":
+				return User{}, ErrUsernameAlreadyTaken
+			}
+		}
+		return User{}, fmt.Errorf("register user: %w", err)
 	}
 
 	return user, nil
 }
 
 func (s *Service) Login(ctx context.Context, input LoginInput) (User, error) {
-	user, err := s.repo.FindByEmail(ctx, input.Email)
+	user, err := s.repo.FindByEmail(ctx, strings.ToLower(strings.TrimSpace(input.Email)))
 	if err != nil {
 		return User{}, fmt.Errorf("invalid credentials")
 	}
@@ -83,8 +84,8 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, username, bi
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			if pgErr.ConstraintName == "users_username_key" {
-				return User{}, fmt.Errorf("username already taken")
+			if pgErr.ConstraintName == "users_username_key" || pgErr.ConstraintName == "users_username_active_lower_key" {
+				return User{}, ErrUsernameAlreadyTaken
 			}
 		}
 		return User{}, err
@@ -93,6 +94,10 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, username, bi
 }
 
 func (s *Service) UpdateEmail(ctx context.Context, userID, currentPassword, newEmail string) error {
+	newEmail = strings.ToLower(strings.TrimSpace(newEmail))
+	if !isEmailValid(newEmail) {
+		return ErrInvalidEmail
+	}
 	user, err := s.repo.FindByID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("user not found")
@@ -100,7 +105,15 @@ func (s *Service) UpdateEmail(ctx context.Context, userID, currentPassword, newE
 	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
 		return fmt.Errorf("current password is incorrect")
 	}
-	return s.repo.UpdateEmail(ctx, userID, newEmail)
+	if err := s.repo.UpdateEmail(ctx, userID, newEmail); err != nil {
+		var postgresErr *pgconn.PgError
+		if errors.As(err, &postgresErr) && postgresErr.Code == "23505" &&
+			(postgresErr.ConstraintName == "users_email_key" || postgresErr.ConstraintName == "users_email_active_lower_key") {
+			return ErrEmailAlreadyRegistered
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
