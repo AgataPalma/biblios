@@ -2,6 +2,7 @@ package shelves
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
@@ -16,6 +17,17 @@ type Handler struct {
 
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
+}
+
+func writeShelfServiceError(w http.ResponseWriter, err error, fallback string) {
+	switch {
+	case errors.Is(err, ErrShelfNotFound), errors.Is(err, ErrBookNotOnShelf), errors.Is(err, ErrCopyNotOwned):
+		httpx.WriteError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, ErrNameRequired), errors.Is(err, ErrNameEmpty):
+		httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
+	default:
+		httpx.WriteError(w, http.StatusInternalServerError, fallback)
+	}
 }
 
 // GET /shelves
@@ -52,7 +64,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	shelf, err := h.service.Create(r.Context(), claims.UserID, req.Name)
 	if err != nil {
-		httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
+		writeShelfServiceError(w, err, "failed to create shelf")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, shelf)
@@ -75,14 +87,7 @@ func (h *Handler) Rename(w http.ResponseWriter, r *http.Request) {
 	}
 	shelf, err := h.service.Rename(r.Context(), id, claims.UserID, req.Name)
 	if err != nil {
-		switch err.Error() {
-		case "shelf not found":
-			httpx.WriteError(w, http.StatusNotFound, err.Error())
-		case "name cannot be empty":
-			httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
-		default:
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to rename shelf")
-		}
+		writeShelfServiceError(w, err, "failed to rename shelf")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, shelf)
@@ -97,11 +102,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	if err := h.service.Delete(r.Context(), id, claims.UserID); err != nil {
-		if err.Error() == "shelf not found" {
-			httpx.WriteError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete shelf")
+		writeShelfServiceError(w, err, "failed to delete shelf")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "shelf deleted"})
@@ -119,11 +120,7 @@ func (h *Handler) ListBooks(w http.ResponseWriter, r *http.Request) {
 
 	userBooks, total, err := h.service.ListBooks(r.Context(), id, claims.UserID, page, limit)
 	if err != nil {
-		if err.Error() == "shelf not found" {
-			httpx.WriteError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list books")
+		writeShelfServiceError(w, err, "failed to list books")
 		return
 	}
 	if userBooks == nil {
@@ -153,11 +150,7 @@ func (h *Handler) AddBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.service.AddBook(r.Context(), id, claims.UserID, req.CopyID); err != nil {
-		if err.Error() == "shelf not found" {
-			httpx.WriteError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to add book")
+		writeShelfServiceError(w, err, "failed to add book")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"message": "book added to shelf"})
@@ -174,12 +167,7 @@ func (h *Handler) RemoveBook(w http.ResponseWriter, r *http.Request) {
 	copyID := chi.URLParam(r, "copyId")
 
 	if err := h.service.RemoveBook(r.Context(), id, claims.UserID, copyID); err != nil {
-		switch err.Error() {
-		case "shelf not found", "book not found on shelf":
-			httpx.WriteError(w, http.StatusNotFound, err.Error())
-		default:
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to remove book")
-		}
+		writeShelfServiceError(w, err, "failed to remove book")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "book removed from shelf"})

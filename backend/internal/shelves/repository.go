@@ -20,9 +20,9 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 func (r *Repository) Create(ctx context.Context, userID, name string) (Shelf, error) {
 	var s Shelf
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO shelves (user_id, name)
-		VALUES ($1, $2)
-		RETURNING id, user_id, name, created_at`,
+			INSERT INTO shelves (user_id, name, scope)
+			VALUES ($1, $2, 'personal')
+			RETURNING id, user_id, name, created_at`,
 		userID, name).Scan(&s.ID, &s.UserID, &s.Name, &s.CreatedAt)
 	if err != nil {
 		return Shelf{}, fmt.Errorf("create shelf: %w", err)
@@ -30,10 +30,12 @@ func (r *Repository) Create(ctx context.Context, userID, name string) (Shelf, er
 	return s, nil
 }
 
-func (r *Repository) FindByID(ctx context.Context, id string) (*Shelf, error) {
+func (r *Repository) FindByID(ctx context.Context, id, userID string) (*Shelf, error) {
 	var s Shelf
 	err := r.db.QueryRow(ctx, `
-		SELECT id, user_id, name, created_at FROM shelves WHERE id=$1`, id).Scan(
+			SELECT id, user_id, name, created_at
+			FROM shelves
+			WHERE id=$1 AND user_id=$2 AND scope='personal'`, id, userID).Scan(
 		&s.ID, &s.UserID, &s.Name, &s.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -41,14 +43,28 @@ func (r *Repository) FindByID(ctx context.Context, id string) (*Shelf, error) {
 	if err != nil {
 		return nil, fmt.Errorf("find shelf: %w", err)
 	}
-	r.db.QueryRow(ctx, `SELECT COUNT(*) FROM shelf_books WHERE shelf_id=$1`, id).Scan(&s.BookCount)
+	if err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM shelf_books sb
+		JOIN book_copies bc ON bc.id=sb.copy_id
+		WHERE sb.shelf_id=$1 AND bc.owner_id=$2 AND bc.deleted_at IS NULL`, id, userID).Scan(&s.BookCount); err != nil {
+		return nil, fmt.Errorf("count shelf books: %w", err)
+	}
 	return &s, nil
 }
 
 func (r *Repository) ListByUser(ctx context.Context, userID string) ([]Shelf, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, user_id, name, created_at FROM shelves
-		WHERE user_id=$1 ORDER BY name ASC`, userID)
+			SELECT s.id, s.user_id, s.name, s.created_at,
+			       COUNT(sb.copy_id) FILTER (
+			           WHERE bc.owner_id=$1 AND bc.deleted_at IS NULL
+			       )
+			FROM shelves s
+			LEFT JOIN shelf_books sb ON sb.shelf_id=s.id
+			LEFT JOIN book_copies bc ON bc.id=sb.copy_id
+			WHERE s.user_id=$1 AND s.scope='personal'
+			GROUP BY s.id
+			ORDER BY s.name ASC`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list shelves: %w", err)
 	}
@@ -57,7 +73,7 @@ func (r *Repository) ListByUser(ctx context.Context, userID string) ([]Shelf, er
 	var shelves []Shelf
 	for rows.Next() {
 		var s Shelf
-		if err := rows.Scan(&s.ID, &s.UserID, &s.Name, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.UserID, &s.Name, &s.CreatedAt, &s.BookCount); err != nil {
 			return nil, err
 		}
 		shelves = append(shelves, s)
@@ -66,21 +82,18 @@ func (r *Repository) ListByUser(ctx context.Context, userID string) ([]Shelf, er
 		return nil, err
 	}
 
-	for i, sh := range shelves {
-		r.db.QueryRow(ctx, `SELECT COUNT(*) FROM shelf_books WHERE shelf_id=$1`, sh.ID).Scan(&shelves[i].BookCount)
-	}
 	return shelves, nil
 }
 
 func (r *Repository) Rename(ctx context.Context, id, userID, name string) (Shelf, error) {
 	var s Shelf
 	err := r.db.QueryRow(ctx, `
-		UPDATE shelves SET name=$3
-		WHERE id=$1 AND user_id=$2
+			UPDATE shelves SET name=$3
+			WHERE id=$1 AND user_id=$2 AND scope='personal'
 		RETURNING id, user_id, name, created_at`,
 		id, userID, name).Scan(&s.ID, &s.UserID, &s.Name, &s.CreatedAt)
 	if err == pgx.ErrNoRows {
-		return Shelf{}, fmt.Errorf("shelf not found")
+		return Shelf{}, ErrShelfNotFound
 	}
 	if err != nil {
 		return Shelf{}, fmt.Errorf("rename shelf: %w", err)
@@ -90,38 +103,57 @@ func (r *Repository) Rename(ctx context.Context, id, userID, name string) (Shelf
 
 // Delete removes the shelf and cascades shelf_books via FK ON DELETE CASCADE.
 func (r *Repository) Delete(ctx context.Context, id, userID string) error {
-	tag, err := r.db.Exec(ctx, `DELETE FROM shelves WHERE id=$1 AND user_id=$2`, id, userID)
+	tag, err := r.db.Exec(ctx, `DELETE FROM shelves WHERE id=$1 AND user_id=$2 AND scope='personal'`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete shelf: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("shelf not found")
+		return ErrShelfNotFound
 	}
 	return nil
 }
 
-func (r *Repository) AddBook(ctx context.Context, shelfID, copyID string) error {
-	_, err := r.db.Exec(ctx, `
-		INSERT INTO shelf_books (shelf_id, copy_id) VALUES ($1,$2)
-		ON CONFLICT DO NOTHING`, shelfID, copyID)
+func (r *Repository) AddBook(ctx context.Context, shelfID, userID, copyID string) error {
+	tag, err := r.db.Exec(ctx, `
+			INSERT INTO shelf_books (shelf_id, copy_id)
+			SELECT s.id, bc.id
+			FROM shelves s
+			JOIN book_copies bc ON bc.id=$3
+			WHERE s.id=$1
+			  AND s.user_id=$2
+			  AND s.scope='personal'
+			  AND bc.owner_id=$2
+			  AND bc.deleted_at IS NULL
+			ON CONFLICT (shelf_id, copy_id) DO UPDATE
+			SET copy_id=EXCLUDED.copy_id`, shelfID, userID, copyID)
 	if err != nil {
 		return fmt.Errorf("add book to shelf: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		return ErrCopyNotOwned
+	}
 	return nil
 }
 
-func (r *Repository) RemoveBook(ctx context.Context, shelfID, copyID string) error {
-	tag, err := r.db.Exec(ctx, `DELETE FROM shelf_books WHERE shelf_id=$1 AND copy_id=$2`, shelfID, copyID)
+func (r *Repository) RemoveBook(ctx context.Context, shelfID, userID, copyID string) error {
+	tag, err := r.db.Exec(ctx, `
+		DELETE FROM shelf_books sb
+		USING shelves s
+		WHERE sb.shelf_id=s.id
+		  AND s.id=$1
+		  AND s.user_id=$2
+		  AND s.scope='personal'
+		  AND sb.copy_id=$3`, shelfID, userID, copyID)
 	if err != nil {
 		return fmt.Errorf("remove book from shelf: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("book not found on shelf")
+		return ErrBookNotOnShelf
 	}
 	return nil
 }
 
-func (r *Repository) ListBooks(ctx context.Context, shelfID string, page, limit int) ([]books.UserBook, int, error) {
+func (r *Repository) ListBooks(ctx context.Context, shelfID, userID string, page, limit int) ([]books.UserBook, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -131,24 +163,38 @@ func (r *Repository) ListBooks(ctx context.Context, shelfID string, page, limit 
 	offset := (page - 1) * limit
 
 	var total int
-	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM shelf_books WHERE shelf_id=$1`, shelfID).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM shelf_books sb
+		JOIN shelves s ON s.id=sb.shelf_id
+		JOIN book_copies bc ON bc.id=sb.copy_id
+		WHERE sb.shelf_id=$1
+		  AND s.user_id=$2
+		  AND s.scope='personal'
+		  AND bc.owner_id=$2
+		  AND bc.deleted_at IS NULL`, shelfID, userID).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count shelf books: %w", err)
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT bc.id, bc.reading_status, bc.current_page, bc.started_reading_at, bc.finished_reading_at,
+			SELECT bc.id, bc.reading_status, bc.current_page, bc.started_reading_at, bc.finished_reading_at,
 		       bc.owned_by_user, bc.borrowed_from, bc.location, bc.condition, bc.reread_count,
 		       bc.personal_notes, sb.added_at,
 		       be.id, be.format, be.language, be.cover_url,
 		       b.id, b.title, b.description, b.series_id, b.series_position, b.status,
-		       b.deleted_at, b.created_at, b.updated_at
-		FROM shelf_books sb
-		JOIN book_copies bc ON bc.id=sb.copy_id
-		JOIN book_editions be ON be.id=bc.edition_id
-		JOIN books b ON b.id=be.book_id
-		WHERE sb.shelf_id=$1 AND bc.deleted_at IS NULL
-		ORDER BY sb.added_at DESC
-		LIMIT $2 OFFSET $3`, shelfID, limit, offset)
+			       b.deleted_at, b.created_at, b.updated_at
+			FROM shelf_books sb
+			JOIN shelves s ON s.id=sb.shelf_id
+			JOIN book_copies bc ON bc.id=sb.copy_id
+			JOIN book_editions be ON be.id=bc.edition_id
+			JOIN books b ON b.id=be.book_id
+			WHERE sb.shelf_id=$1
+			  AND s.user_id=$2
+			  AND s.scope='personal'
+			  AND bc.owner_id=$2
+			  AND bc.deleted_at IS NULL
+			ORDER BY sb.added_at DESC
+			LIMIT $3 OFFSET $4`, shelfID, userID, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list shelf books: %w", err)
 	}
