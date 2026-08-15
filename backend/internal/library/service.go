@@ -2,11 +2,24 @@ package library
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/mail"
 	"strings"
 	"time"
 
 	"github.com/AgataPalma/biblios/internal/books"
+)
+
+var (
+	ErrInvalidInvitationEmail    = errors.New("invalid email address")
+	ErrInvitationNotFound        = errors.New("invitation not found")
+	ErrInvitationNotForUser      = errors.New("invitation is not intended for this user")
+	ErrInvitationNotPending      = errors.New("invitation is no longer pending")
+	ErrInvitationExpired         = errors.New("invitation has expired")
+	ErrInvitationAlreadyPending  = errors.New("an invitation is already pending for this email")
+	ErrInvitationRecipientMember = errors.New("user is already a member of this library")
+	ErrInvitationCreateForbidden = errors.New("not allowed to invite members to this library")
 )
 
 type Service struct {
@@ -130,8 +143,10 @@ func (s *Service) InviteMember(ctx context.Context, libraryID, inviterID, email 
 	if !m.CanInvite {
 		return LibraryInvitation{}, fmt.Errorf("you do not have permission to invite members")
 	}
-	if strings.TrimSpace(email) == "" {
-		return LibraryInvitation{}, fmt.Errorf("email is required")
+	email = strings.ToLower(strings.TrimSpace(email))
+	address, err := mail.ParseAddress(email)
+	if err != nil || !strings.EqualFold(address.Address, email) {
+		return LibraryInvitation{}, ErrInvalidInvitationEmail
 	}
 
 	expiresAt := time.Now().Add(7 * 24 * time.Hour) // 7 days
@@ -142,8 +157,8 @@ func (s *Service) AcceptInvitation(ctx context.Context, token, userID string) er
 	return s.repo.AcceptInvitation(ctx, token, userID)
 }
 
-func (s *Service) DeclineInvitation(ctx context.Context, token string) error {
-	return s.repo.DeclineInvitation(ctx, token)
+func (s *Service) DeclineInvitation(ctx context.Context, token, userID string) error {
+	return s.repo.DeclineInvitation(ctx, token, userID)
 }
 
 func (s *Service) ListMyInvitations(ctx context.Context, userID string) ([]LibraryInvitation, error) {

@@ -50,11 +50,11 @@ export async function inviteMember(libraryId: string, email: string): Promise<vo
 }
 
 export async function acceptInvitation(token: string): Promise<void> {
-    await apiClient.put(`/libraries/invitations/${token}/accept`)
+    await apiClient.post(`/invitations/${token}/accept`)
 }
 
 export async function declineInvitation(token: string): Promise<void> {
-    await apiClient.put(`/libraries/invitations/${token}/decline`)
+    await apiClient.post(`/invitations/${token}/decline`)
 }
 
 export async function updateMember(

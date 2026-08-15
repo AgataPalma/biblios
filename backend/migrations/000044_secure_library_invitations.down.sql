@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS uq_library_invitations_pending_email;

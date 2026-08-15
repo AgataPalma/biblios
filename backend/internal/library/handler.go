@@ -2,6 +2,7 @@ package library
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
@@ -261,11 +262,15 @@ func (h *Handler) InviteMember(w http.ResponseWriter, r *http.Request) {
 
 	inv, err := h.service.InviteMember(r.Context(), libraryID, claims.UserID, req.Email)
 	if err != nil {
-		switch err.Error() {
-		case "not a member of this library", "you do not have permission to invite members":
+		switch {
+		case err.Error() == "not a member of this library",
+			err.Error() == "you do not have permission to invite members",
+			errors.Is(err, ErrInvitationCreateForbidden):
 			httpx.WriteError(w, http.StatusForbidden, err.Error())
-		case "email is required":
+		case errors.Is(err, ErrInvalidInvitationEmail), errors.Is(err, ErrInvitationRecipientMember):
 			httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
+		case errors.Is(err, ErrInvitationAlreadyPending):
+			httpx.WriteError(w, http.StatusConflict, err.Error())
 		default:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to create invitation")
 		}
@@ -305,10 +310,12 @@ func (h *Handler) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
 	}
 	token := chi.URLParam(r, "token")
 	if err := h.service.AcceptInvitation(r.Context(), token, claims.UserID); err != nil {
-		switch err.Error() {
-		case "invitation not found":
+		switch {
+		case errors.Is(err, ErrInvitationNotFound):
 			httpx.WriteError(w, http.StatusNotFound, err.Error())
-		case "invitation is no longer pending", "invitation has expired":
+		case errors.Is(err, ErrInvitationNotForUser):
+			httpx.WriteError(w, http.StatusForbidden, err.Error())
+		case errors.Is(err, ErrInvitationNotPending), errors.Is(err, ErrInvitationExpired):
 			httpx.WriteError(w, http.StatusConflict, err.Error())
 		default:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to accept invitation")
@@ -321,11 +328,20 @@ func (h *Handler) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
 // ─── POST /invitations/{token}/decline ───────────────────────────────────────
 
 func (h *Handler) DeclineInvitation(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	token := chi.URLParam(r, "token")
-	if err := h.service.DeclineInvitation(r.Context(), token); err != nil {
-		switch err.Error() {
-		case "invitation not found or already actioned":
+	if err := h.service.DeclineInvitation(r.Context(), token, claims.UserID); err != nil {
+		switch {
+		case errors.Is(err, ErrInvitationNotFound):
 			httpx.WriteError(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, ErrInvitationNotForUser):
+			httpx.WriteError(w, http.StatusForbidden, err.Error())
+		case errors.Is(err, ErrInvitationNotPending), errors.Is(err, ErrInvitationExpired):
+			httpx.WriteError(w, http.StatusConflict, err.Error())
 		default:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to decline invitation")
 		}

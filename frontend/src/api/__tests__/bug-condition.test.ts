@@ -490,6 +490,27 @@ describe('Bug 7 — Library response shapes and invitation routes', () => {
         expect(correctRequests.length).toBe(1)
         expect(wrongRequests.length).toBe(0)
     })
+
+    it('should call POST /invitations/tok/decline (not PUT /libraries/invitations/tok/decline)', async () => {
+        const correctRequests: string[] = []
+        const wrongRequests: string[] = []
+
+        mock.onPost('/invitations/tok/decline').reply((config) => {
+            correctRequests.push(`POST ${config.url}`)
+            return [200, undefined]
+        })
+
+        mock.onPut('/libraries/invitations/tok/decline').reply((config) => {
+            wrongRequests.push(`PUT ${config.url}`)
+            return [404, { error: 'not found' }]
+        })
+
+        const { declineInvitation } = await import('../libraries')
+        await declineInvitation('tok')
+
+        expect(correctRequests.length).toBe(1)
+        expect(wrongRequests.length).toBe(0)
+    })
 })
 
 // ── Bug 8 — Series detail shape ───────────────────────────────────────────────

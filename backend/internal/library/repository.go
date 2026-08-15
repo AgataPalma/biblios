@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AgataPalma/biblios/internal/books"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -301,23 +304,79 @@ func (r *Repository) CreateInvitation(ctx context.Context, libraryID, invitedBy,
 	if err != nil {
 		return LibraryInvitation{}, err
 	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return LibraryInvitation{}, fmt.Errorf("begin invitation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Try to resolve invited_user_id from email
+	var canInvite bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM libraries l
+			JOIN library_members lm ON lm.library_id=l.id
+			JOIN users inviter ON inviter.id=lm.user_id AND inviter.deleted_at IS NULL
+			WHERE l.id=$1
+			  AND l.deleted_at IS NULL
+			  AND lm.user_id=$2
+			  AND lm.can_invite
+		)`, libraryID, invitedBy).Scan(&canInvite); err != nil {
+		return LibraryInvitation{}, fmt.Errorf("authorize invitation: %w", err)
+	}
+	if !canInvite {
+		return LibraryInvitation{}, ErrInvitationCreateForbidden
+	}
+
+	// Expired rows must stop occupying the partial unique index.
+	if _, err := tx.Exec(ctx, `
+		UPDATE library_invitations
+		SET status='expired'
+		WHERE library_id=$1
+		  AND LOWER(invited_email)=LOWER($2)
+		  AND status='pending'
+		  AND expires_at<=NOW()`, libraryID, invitedEmail); err != nil {
+		return LibraryInvitation{}, fmt.Errorf("expire prior invitations: %w", err)
+	}
+
 	var invitedUserID *string
 	var uid string
-	if err := r.db.QueryRow(ctx, `SELECT id FROM users WHERE email=$1 AND deleted_at IS NULL`, invitedEmail).Scan(&uid); err == nil {
+	lookupErr := tx.QueryRow(ctx, `
+		SELECT id FROM users
+		WHERE LOWER(email)=LOWER($1) AND deleted_at IS NULL`, invitedEmail).Scan(&uid)
+	if lookupErr == nil {
 		invitedUserID = &uid
+		var alreadyMember bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM library_members
+				WHERE library_id=$1 AND user_id=$2
+			)`, libraryID, uid).Scan(&alreadyMember); err != nil {
+			return LibraryInvitation{}, fmt.Errorf("check existing member: %w", err)
+		}
+		if alreadyMember {
+			return LibraryInvitation{}, ErrInvitationRecipientMember
+		}
+	} else if !errors.Is(lookupErr, pgx.ErrNoRows) {
+		return LibraryInvitation{}, fmt.Errorf("resolve invited user: %w", lookupErr)
 	}
 
 	var inv LibraryInvitation
-	err = scanInvitation(r.db.QueryRow(ctx, `
+	err = scanInvitation(tx.QueryRow(ctx, `
 		INSERT INTO library_invitations
 			(library_id, invited_by, invited_user_id, invited_email, token, expires_at)
 		VALUES ($1,$2,$3,$4,$5,$6)
 		RETURNING `+invitationColumns,
 		libraryID, invitedBy, invitedUserID, invitedEmail, token, expiresAt), &inv)
 	if err != nil {
+		var postgresErr *pgconn.PgError
+		if errors.As(err, &postgresErr) && postgresErr.Code == "23505" && postgresErr.ConstraintName == "uq_library_invitations_pending_email" {
+			return LibraryInvitation{}, ErrInvitationAlreadyPending
+		}
 		return LibraryInvitation{}, fmt.Errorf("create invitation: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return LibraryInvitation{}, fmt.Errorf("commit invitation: %w", err)
 	}
 	return inv, nil
 }
@@ -348,36 +407,83 @@ func (r *Repository) FindInvitationByID(ctx context.Context, id string) (*Librar
 	return &inv, nil
 }
 
-// AcceptInvitation marks the invitation accepted and adds the user as a library member.
+type lockedInvitation struct {
+	ID             string
+	LibraryID      string
+	InvitedUserID  *string
+	InvitedEmail   string
+	RecipientEmail string
+	Status         string
+	ExpiresAt      time.Time
+}
+
+func lockInvitationForUser(ctx context.Context, tx pgx.Tx, token, userID string) (lockedInvitation, error) {
+	var invitation lockedInvitation
+	err := tx.QueryRow(ctx, `
+		SELECT li.id, li.library_id, li.invited_user_id, li.invited_email,
+		       u.email, li.status, li.expires_at
+		FROM library_invitations li
+		JOIN libraries l ON l.id=li.library_id AND l.deleted_at IS NULL
+		JOIN users u ON u.id=$2 AND u.deleted_at IS NULL
+		WHERE li.token=$1
+		FOR UPDATE OF li`, token, userID).Scan(
+		&invitation.ID, &invitation.LibraryID, &invitation.InvitedUserID,
+		&invitation.InvitedEmail, &invitation.RecipientEmail,
+		&invitation.Status, &invitation.ExpiresAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return lockedInvitation{}, ErrInvitationNotFound
+	}
+	if err != nil {
+		return lockedInvitation{}, fmt.Errorf("lock invitation: %w", err)
+	}
+
+	if invitation.InvitedUserID != nil {
+		if *invitation.InvitedUserID != userID {
+			return lockedInvitation{}, ErrInvitationNotForUser
+		}
+	} else if !strings.EqualFold(invitation.InvitedEmail, invitation.RecipientEmail) {
+		return lockedInvitation{}, ErrInvitationNotForUser
+	}
+	return invitation, nil
+}
+
+func expireInvitation(ctx context.Context, tx pgx.Tx, invitationID string) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE library_invitations SET status='expired'
+		WHERE id=$1 AND status='pending'`, invitationID); err != nil {
+		return fmt.Errorf("expire invitation: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit expired invitation: %w", err)
+	}
+	return ErrInvitationExpired
+}
+
+// AcceptInvitation locks, validates, and consumes an invitation in one
+// transaction before adding the intended recipient as a member.
 func (r *Repository) AcceptInvitation(ctx context.Context, token, userID string) error {
-	inv, err := r.FindInvitationByToken(ctx, token)
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin accept invitation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	invitation, err := lockInvitationForUser(ctx, tx, token, userID)
 	if err != nil {
 		return err
 	}
-	if inv == nil {
-		return fmt.Errorf("invitation not found")
+	if invitation.Status != "pending" {
+		return ErrInvitationNotPending
 	}
-	if inv.Status != "pending" {
-		return fmt.Errorf("invitation is no longer pending")
+	if !time.Now().Before(invitation.ExpiresAt) {
+		return expireInvitation(ctx, tx, invitation.ID)
 	}
-	if time.Now().After(inv.ExpiresAt) {
-		return fmt.Errorf("invitation has expired")
-	}
-
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback(ctx)
-		}
-	}()
 
 	_, err = tx.Exec(ctx, `
 		UPDATE library_invitations
 		SET status='accepted', accepted_at=NOW(), invited_user_id=$2
-		WHERE token=$1`, token, userID)
+		WHERE id=$1 AND status='pending'`, invitation.ID, userID)
 	if err != nil {
 		return fmt.Errorf("accept invitation: %w", err)
 	}
@@ -387,22 +493,41 @@ func (r *Repository) AcceptInvitation(ctx context.Context, token, userID string)
 			(library_id, user_id, is_owner, can_view, can_add, can_remove, can_edit, can_invite, can_manage_members)
 		VALUES ($1,$2,false,true,false,false,false,false,false)
 		ON CONFLICT (library_id, user_id) DO NOTHING`,
-		inv.LibraryID, userID)
+		invitation.LibraryID, userID)
 	if err != nil {
 		return fmt.Errorf("add member on accept: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit accept invitation: %w", err)
+	}
+	return nil
 }
 
-func (r *Repository) DeclineInvitation(ctx context.Context, token string) error {
-	tag, err := r.db.Exec(ctx, `
-		UPDATE library_invitations SET status='declined' WHERE token=$1 AND status='pending'`, token)
+func (r *Repository) DeclineInvitation(ctx context.Context, token, userID string) error {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin decline invitation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	invitation, err := lockInvitationForUser(ctx, tx, token, userID)
+	if err != nil {
+		return err
+	}
+	if invitation.Status != "pending" {
+		return ErrInvitationNotPending
+	}
+	if !time.Now().Before(invitation.ExpiresAt) {
+		return expireInvitation(ctx, tx, invitation.ID)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE library_invitations SET status='declined'
+		WHERE id=$1 AND status='pending'`, invitation.ID); err != nil {
 		return fmt.Errorf("decline invitation: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("invitation not found or already actioned")
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit decline invitation: %w", err)
 	}
 	return nil
 }
@@ -412,8 +537,17 @@ func (r *Repository) ListUserInvitations(ctx context.Context, userID string) ([]
 	rows, err := r.db.Query(ctx, `
 		SELECT `+invitationColumns+`
 		FROM library_invitations li
-		WHERE (li.invited_user_id=$1 OR li.invited_email=(SELECT email FROM users WHERE id=$1 AND deleted_at IS NULL))
+		WHERE (
+			li.invited_user_id=$1
+			OR (
+				li.invited_user_id IS NULL
+				AND LOWER(li.invited_email)=LOWER((
+					SELECT email FROM users WHERE id=$1 AND deleted_at IS NULL
+				))
+			)
+		)
 		  AND li.status='pending'
+		  AND li.expires_at>NOW()
 		ORDER BY li.created_at DESC`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list user invitations: %w", err)
