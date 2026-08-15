@@ -1,19 +1,38 @@
 package users
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
 	"github.com/AgataPalma/biblios/internal/httpx"
 )
 
-type Handler struct {
-	service *Service
+type userService interface {
+	GetByID(ctx context.Context, id string) (User, error)
+	UpdateProfile(ctx context.Context, userID string, username, bio, avatarURL *string) (User, error)
+	UpdateEmail(ctx context.Context, userID, currentPassword, newEmail string) error
+	UpdatePassword(ctx context.Context, userID, currentPassword, newPassword string) error
+	UpdateTheme(ctx context.Context, userID, theme string) error
+	DeleteUser(ctx context.Context, userID string) error
 }
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+type sessionController interface {
+	DisableUser(ctx context.Context, userID string) error
+	EnableUser(ctx context.Context, userID string) error
+	DeleteAllUserSessions(ctx context.Context, userID string) error
+}
+
+type Handler struct {
+	service  userService
+	sessions sessionController
+}
+
+func NewHandler(service userService, sessions sessionController) *Handler {
+	return &Handler{service: service, sessions: sessions}
 }
 
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
@@ -155,9 +174,29 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if err := h.service.DeleteUser(r.Context(), claims.UserID); err != nil {
+	// Disable first so neither existing tokens nor a login racing with deletion
+	// can authenticate after this point.
+	if err := h.sessions.DisableUser(r.Context(), claims.UserID); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete account")
 		return
+	}
+	if err := h.service.DeleteUser(r.Context(), claims.UserID); err != nil {
+		rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+		defer cancelRollback()
+		if enableErr := h.sessions.EnableUser(rollbackCtx, claims.UserID); enableErr != nil {
+			slog.Error("failed to re-enable sessions after account deletion rollback",
+				"user_id", claims.UserID, "error", enableErr)
+		}
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete account")
+		return
+	}
+	// The durable disabled marker already makes these sessions unusable. Key
+	// cleanup is best-effort so a successfully deleted account is not reported
+	// as active merely because Redis cleanup failed.
+	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+	defer cancelCleanup()
+	if err := h.sessions.DeleteAllUserSessions(cleanupCtx, claims.UserID); err != nil {
+		slog.Error("failed to clean disabled account sessions", "user_id", claims.UserID, "error", err)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "account deleted"})
 }
