@@ -90,7 +90,7 @@ func (f *fakeLibraryRepository) AcceptInvitation(_ context.Context, _, _ string)
 	return nil
 }
 
-func (f *fakeLibraryRepository) DeclineInvitation(_ context.Context, _ string) error {
+func (f *fakeLibraryRepository) DeclineInvitation(_ context.Context, _, _ string) error {
 	return nil
 }
 

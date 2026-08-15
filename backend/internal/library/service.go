@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -11,11 +12,19 @@ import (
 )
 
 var (
-	ErrLibraryNotFound  = errors.New("library not found")
-	ErrAccessDenied     = errors.New("access denied")
-	ErrNotMember        = errors.New("not a member of this library")
-	ErrCopyNotOwned     = errors.New("copy not found")
-	ErrBookNotInLibrary = errors.New("book copy not found in library")
+	ErrLibraryNotFound           = errors.New("library not found")
+	ErrAccessDenied              = errors.New("access denied")
+	ErrNotMember                 = errors.New("not a member of this library")
+	ErrCopyNotOwned              = errors.New("copy not found")
+	ErrBookNotInLibrary          = errors.New("book copy not found in library")
+	ErrInvalidInvitationEmail    = errors.New("invalid email address")
+	ErrInvitationNotFound        = errors.New("invitation not found")
+	ErrInvitationNotForUser      = errors.New("invitation is not intended for this user")
+	ErrInvitationNotPending      = errors.New("invitation is no longer pending")
+	ErrInvitationExpired         = errors.New("invitation has expired")
+	ErrInvitationAlreadyPending  = errors.New("an invitation is already pending for this email")
+	ErrInvitationRecipientMember = errors.New("user is already a member of this library")
+	ErrInvitationCreateForbidden = errors.New("not allowed to invite members to this library")
 )
 
 type libraryRepository interface {
@@ -31,7 +40,7 @@ type libraryRepository interface {
 	RemoveMember(ctx context.Context, libraryID, userID string) error
 	CreateInvitation(ctx context.Context, libraryID, invitedBy, invitedEmail string, expiresAt time.Time) (LibraryInvitation, error)
 	AcceptInvitation(ctx context.Context, token, userID string) error
-	DeclineInvitation(ctx context.Context, token string) error
+	DeclineInvitation(ctx context.Context, token, userID string) error
 	ListUserInvitations(ctx context.Context, userID string) ([]LibraryInvitation, error)
 	AddBookCopyToLibrary(ctx context.Context, libraryID, userID, copyID string) error
 	RemoveBookCopyFromLibrary(ctx context.Context, libraryID, userID, copyID string) error
@@ -181,8 +190,10 @@ func (s *Service) InviteMember(ctx context.Context, libraryID, inviterID, email 
 	if !m.CanInvite {
 		return LibraryInvitation{}, fmt.Errorf("you do not have permission to invite members")
 	}
-	if strings.TrimSpace(email) == "" {
-		return LibraryInvitation{}, fmt.Errorf("email is required")
+	email = strings.ToLower(strings.TrimSpace(email))
+	address, err := mail.ParseAddress(email)
+	if err != nil || !strings.EqualFold(address.Address, email) {
+		return LibraryInvitation{}, ErrInvalidInvitationEmail
 	}
 
 	expiresAt := time.Now().Add(7 * 24 * time.Hour) // 7 days
@@ -193,8 +204,8 @@ func (s *Service) AcceptInvitation(ctx context.Context, token, userID string) er
 	return s.repo.AcceptInvitation(ctx, token, userID)
 }
 
-func (s *Service) DeclineInvitation(ctx context.Context, token string) error {
-	return s.repo.DeclineInvitation(ctx, token)
+func (s *Service) DeclineInvitation(ctx context.Context, token, userID string) error {
+	return s.repo.DeclineInvitation(ctx, token, userID)
 }
 
 func (s *Service) ListMyInvitations(ctx context.Context, userID string) ([]LibraryInvitation, error) {
