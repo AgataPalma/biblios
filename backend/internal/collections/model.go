@@ -5,7 +5,7 @@ import "time"
 type Collection struct {
 	ID              string     `json:"id"`
 	LibraryID       string     `json:"library_id"`
-	CreatedBy       string     `json:"created_by"`
+	CreatedBy       string     `json:"created_by,omitempty"`
 	Name            string     `json:"name"`
 	Description     *string    `json:"description,omitempty"`
 	CoverColour     *string    `json:"cover_colour,omitempty"`
@@ -19,7 +19,26 @@ type Collection struct {
 
 type CollectionBook struct {
 	CollectionID string    `json:"collection_id"`
-	BookCopyID   string    `json:"book_copy_id"`
-	AddedBy      string    `json:"added_by"`
+	BookCopyID   string    `json:"book_copy_id,omitempty"`
+	BookID       string    `json:"book_id"`
+	EditionID    string    `json:"edition_id"`
+	Title        string    `json:"title"`
+	Authors      []string  `json:"authors"`
+	Format       string    `json:"format"`
+	Language     *string   `json:"language,omitempty"`
+	CoverURL     *string   `json:"cover_url,omitempty"`
 	AddedAt      time.Time `json:"added_at"`
+}
+
+// LibraryAccess is the collection package's view of a caller's access to a
+// library. Keeping this small prevents collection handlers from reaching into
+// the library repository and makes the authorization rules testable.
+type LibraryAccess struct {
+	Visibility string
+	IsMember   bool
+	IsOwner    bool
+	CanView    bool
+	CanAdd     bool
+	CanRemove  bool
+	CanEdit    bool
 }

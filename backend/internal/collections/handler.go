@@ -2,10 +2,10 @@ package collections
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
-	"github.com/AgataPalma/biblios/internal/books"
 	"github.com/AgataPalma/biblios/internal/httpx"
 	"github.com/go-chi/chi/v5"
 )
@@ -16,6 +16,21 @@ type Handler struct {
 
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
+}
+
+func writeCollectionServiceError(w http.ResponseWriter, err error, fallback string) {
+	switch {
+	case errors.Is(err, ErrLibraryNotFound), errors.Is(err, ErrCollectionNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "collection not found")
+	case errors.Is(err, ErrAccessDenied):
+		httpx.WriteError(w, http.StatusForbidden, "access denied")
+	case errors.Is(err, ErrCopyNotInLibrary), errors.Is(err, ErrNameRequired), errors.Is(err, ErrNameEmpty):
+		httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, ErrBookNotInCollection):
+		httpx.WriteError(w, http.StatusNotFound, err.Error())
+	default:
+		httpx.WriteError(w, http.StatusInternalServerError, fallback)
+	}
 }
 
 // POST /libraries/{id}/collections
@@ -35,7 +50,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	col, err := h.service.Create(r.Context(), libraryID, claims.UserID, input)
 	if err != nil {
-		httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
+		writeCollectionServiceError(w, err, "failed to create collection")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, col)
@@ -43,10 +58,15 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 // GET /libraries/{id}/collections
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	libraryID := chi.URLParam(r, "id")
-	cols, err := h.service.ListByLibrary(r.Context(), libraryID)
+	cols, err := h.service.ListByLibrary(r.Context(), libraryID, claims.UserID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list collections")
+		writeCollectionServiceError(w, err, "failed to list collections")
 		return
 	}
 	if cols == nil {
@@ -57,10 +77,16 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 // GET /libraries/{id}/collections/{collectionId}
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	libraryID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
-	col, err := h.service.Get(r.Context(), collectionID)
-	if err != nil || col == nil {
-		httpx.WriteError(w, http.StatusNotFound, "collection not found")
+	col, err := h.service.Get(r.Context(), libraryID, collectionID, claims.UserID)
+	if err != nil {
+		writeCollectionServiceError(w, err, "failed to get collection")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, col)
@@ -73,6 +99,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	libraryID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
 
 	var input UpdateCollectionInput
@@ -81,16 +108,9 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	col, err := h.service.Update(r.Context(), collectionID, claims.UserID, input)
+	col, err := h.service.Update(r.Context(), libraryID, collectionID, claims.UserID, input)
 	if err != nil {
-		switch err.Error() {
-		case "collection not found":
-			httpx.WriteError(w, http.StatusNotFound, err.Error())
-		case "only the collection creator can update it", "name cannot be empty":
-			httpx.WriteError(w, http.StatusForbidden, err.Error())
-		default:
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to update collection")
-		}
+		writeCollectionServiceError(w, err, "failed to update collection")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, col)
@@ -103,17 +123,11 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	libraryID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
 
-	if err := h.service.Delete(r.Context(), collectionID, claims.UserID); err != nil {
-		switch err.Error() {
-		case "collection not found":
-			httpx.WriteError(w, http.StatusNotFound, err.Error())
-		case "only the collection creator can delete it":
-			httpx.WriteError(w, http.StatusForbidden, err.Error())
-		default:
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to delete collection")
-		}
+	if err := h.service.Delete(r.Context(), libraryID, collectionID, claims.UserID); err != nil {
+		writeCollectionServiceError(w, err, "failed to delete collection")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "collection deleted"})
@@ -126,6 +140,7 @@ func (h *Handler) AddBook(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	libraryID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
 
 	var req struct {
@@ -136,15 +151,8 @@ func (h *Handler) AddBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.AddBook(r.Context(), collectionID, claims.UserID, req.CopyID); err != nil {
-		switch err.Error() {
-		case "collection not found":
-			httpx.WriteError(w, http.StatusNotFound, err.Error())
-		case "only the collection creator can add books to this collection":
-			httpx.WriteError(w, http.StatusForbidden, err.Error())
-		default:
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to add book")
-		}
+	if err := h.service.AddBook(r.Context(), libraryID, collectionID, claims.UserID, req.CopyID); err != nil {
+		writeCollectionServiceError(w, err, "failed to add book")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"message": "book added to collection"})
@@ -157,18 +165,12 @@ func (h *Handler) RemoveBook(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	libraryID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
 	copyID := chi.URLParam(r, "copyId")
 
-	if err := h.service.RemoveBook(r.Context(), collectionID, claims.UserID, copyID); err != nil {
-		switch err.Error() {
-		case "collection not found", "book not found in collection":
-			httpx.WriteError(w, http.StatusNotFound, err.Error())
-		case "only the collection creator can remove books":
-			httpx.WriteError(w, http.StatusForbidden, err.Error())
-		default:
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to remove book")
-		}
+	if err := h.service.RemoveBook(r.Context(), libraryID, collectionID, claims.UserID, copyID); err != nil {
+		writeCollectionServiceError(w, err, "failed to remove book")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "book removed from collection"})
@@ -176,19 +178,25 @@ func (h *Handler) RemoveBook(w http.ResponseWriter, r *http.Request) {
 
 // GET /libraries/{id}/collections/{collectionId}/books
 func (h *Handler) ListBooks(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(apictx.UserClaimsKey).(apictx.Claims)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	libraryID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
 	page, limit := httpx.PaginationParams(r)
 
-	userBooks, total, err := h.service.ListBooks(r.Context(), collectionID, page, limit)
+	collectionBooks, total, err := h.service.ListBooks(r.Context(), libraryID, collectionID, claims.UserID, page, limit)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list books")
+		writeCollectionServiceError(w, err, "failed to list books")
 		return
 	}
-	if userBooks == nil {
-		userBooks = []books.UserBook{}
+	if collectionBooks == nil {
+		collectionBooks = []CollectionBook{}
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"books": userBooks,
+		"books": collectionBooks,
 		"total": total,
 		"page":  page,
 		"limit": limit,
