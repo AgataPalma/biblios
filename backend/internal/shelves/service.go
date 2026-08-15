@@ -2,23 +2,42 @@ package shelves
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/AgataPalma/biblios/internal/books"
 )
 
-type Service struct {
-	repo *Repository
+var (
+	ErrShelfNotFound  = errors.New("shelf not found")
+	ErrBookNotOnShelf = errors.New("book not found on shelf")
+	ErrCopyNotOwned   = errors.New("copy not found")
+	ErrNameRequired   = errors.New("name is required")
+	ErrNameEmpty      = errors.New("name cannot be empty")
+)
+
+type shelfRepository interface {
+	Create(ctx context.Context, userID, name string) (Shelf, error)
+	FindByID(ctx context.Context, id, userID string) (*Shelf, error)
+	ListByUser(ctx context.Context, userID string) ([]Shelf, error)
+	Rename(ctx context.Context, id, userID, name string) (Shelf, error)
+	Delete(ctx context.Context, id, userID string) error
+	AddBook(ctx context.Context, shelfID, userID, copyID string) error
+	RemoveBook(ctx context.Context, shelfID, userID, copyID string) error
+	ListBooks(ctx context.Context, shelfID, userID string, page, limit int) ([]books.UserBook, int, error)
 }
 
-func NewService(repo *Repository) *Service {
+type Service struct {
+	repo shelfRepository
+}
+
+func NewService(repo shelfRepository) *Service {
 	return &Service{repo: repo}
 }
 
 func (s *Service) Create(ctx context.Context, userID, name string) (Shelf, error) {
 	if strings.TrimSpace(name) == "" {
-		return Shelf{}, fmt.Errorf("name is required")
+		return Shelf{}, ErrNameRequired
 	}
 	return s.repo.Create(ctx, userID, name)
 }
@@ -29,7 +48,7 @@ func (s *Service) ListMyShelf(ctx context.Context, userID string) ([]Shelf, erro
 
 func (s *Service) Rename(ctx context.Context, id, userID, name string) (Shelf, error) {
 	if strings.TrimSpace(name) == "" {
-		return Shelf{}, fmt.Errorf("name cannot be empty")
+		return Shelf{}, ErrNameEmpty
 	}
 	return s.repo.Rename(ctx, id, userID, name)
 }
@@ -38,38 +57,34 @@ func (s *Service) Delete(ctx context.Context, id, userID string) error {
 	return s.repo.Delete(ctx, id, userID)
 }
 
-func (s *Service) AddBook(ctx context.Context, shelfID, userID, copyID string) error {
-	shelf, err := s.repo.FindByID(ctx, shelfID)
+func (s *Service) personalShelf(ctx context.Context, shelfID, userID string) (*Shelf, error) {
+	shelf, err := s.repo.FindByID(ctx, shelfID, userID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if shelf == nil {
-		return fmt.Errorf("shelf not found")
+		return nil, ErrShelfNotFound
 	}
-	if shelf.UserID != userID {
-		return fmt.Errorf("shelf not found")
+	return shelf, nil
+}
+
+func (s *Service) AddBook(ctx context.Context, shelfID, userID, copyID string) error {
+	if _, err := s.personalShelf(ctx, shelfID, userID); err != nil {
+		return err
 	}
-	return s.repo.AddBook(ctx, shelfID, copyID)
+	return s.repo.AddBook(ctx, shelfID, userID, copyID)
 }
 
 func (s *Service) RemoveBook(ctx context.Context, shelfID, userID, copyID string) error {
-	shelf, err := s.repo.FindByID(ctx, shelfID)
-	if err != nil {
+	if _, err := s.personalShelf(ctx, shelfID, userID); err != nil {
 		return err
 	}
-	if shelf == nil || shelf.UserID != userID {
-		return fmt.Errorf("shelf not found")
-	}
-	return s.repo.RemoveBook(ctx, shelfID, copyID)
+	return s.repo.RemoveBook(ctx, shelfID, userID, copyID)
 }
 
 func (s *Service) ListBooks(ctx context.Context, shelfID, userID string, page, limit int) ([]books.UserBook, int, error) {
-	shelf, err := s.repo.FindByID(ctx, shelfID)
-	if err != nil {
+	if _, err := s.personalShelf(ctx, shelfID, userID); err != nil {
 		return nil, 0, err
 	}
-	if shelf == nil || shelf.UserID != userID {
-		return nil, 0, fmt.Errorf("shelf not found")
-	}
-	return s.repo.ListBooks(ctx, shelfID, page, limit)
+	return s.repo.ListBooks(ctx, shelfID, userID, page, limit)
 }
