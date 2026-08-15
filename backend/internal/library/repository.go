@@ -85,18 +85,28 @@ func (r *Repository) FindLibraryByID(ctx context.Context, id string) (*Library, 
 	if err != nil {
 		return nil, fmt.Errorf("find library: %w", err)
 	}
-	// Load member count
-	r.db.QueryRow(ctx, `SELECT COUNT(*) FROM library_members WHERE library_id=$1`, id).Scan(&lib.MemberCount)
+	if err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM library_members lm
+		JOIN users u ON u.id=lm.user_id AND u.deleted_at IS NULL
+		WHERE lm.library_id=$1`, id).Scan(&lib.MemberCount); err != nil {
+		return nil, fmt.Errorf("count library members: %w", err)
+	}
 	return &lib, nil
 }
 
 func (r *Repository) ListUserLibraries(ctx context.Context, userID string) ([]Library, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT l.`+libraryColumns+`
-		FROM libraries l
-		JOIN library_members lm ON lm.library_id=l.id
-		WHERE lm.user_id=$1 AND l.deleted_at IS NULL
-		ORDER BY l.created_at ASC`, userID)
+			SELECT l.id, l.owner_id, l.name, l.description, l.is_cooperative, l.visibility,
+			       l.deleted_at, l.created_at, l.updated_at,
+			       COUNT(all_members.user_id) FILTER (WHERE all_member_users.deleted_at IS NULL)
+			FROM libraries l
+			JOIN library_members lm ON lm.library_id=l.id
+			LEFT JOIN library_members all_members ON all_members.library_id=l.id
+			LEFT JOIN users all_member_users ON all_member_users.id=all_members.user_id
+			WHERE lm.user_id=$1 AND lm.can_view AND l.deleted_at IS NULL
+			GROUP BY l.id
+			ORDER BY l.created_at ASC`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list user libraries: %w", err)
 	}
@@ -105,7 +115,10 @@ func (r *Repository) ListUserLibraries(ctx context.Context, userID string) ([]Li
 	var libs []Library
 	for rows.Next() {
 		var lib Library
-		if err := scanLibrary(rows, &lib); err != nil {
+		if err := rows.Scan(
+			&lib.ID, &lib.OwnerID, &lib.Name, &lib.Description, &lib.IsCooperative, &lib.Visibility,
+			&lib.DeletedAt, &lib.CreatedAt, &lib.UpdatedAt, &lib.MemberCount,
+		); err != nil {
 			return nil, err
 		}
 		libs = append(libs, lib)
@@ -114,10 +127,6 @@ func (r *Repository) ListUserLibraries(ctx context.Context, userID string) ([]Li
 		return nil, err
 	}
 
-	// Batch load member counts
-	for i, lib := range libs {
-		r.db.QueryRow(ctx, `SELECT COUNT(*) FROM library_members WHERE library_id=$1`, lib.ID).Scan(&libs[i].MemberCount)
-	}
 	return libs, nil
 }
 
@@ -136,9 +145,15 @@ func (r *Repository) ListPublicLibraries(ctx context.Context, page, limit int) (
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT `+libraryColumns+` FROM libraries
-		WHERE visibility='public' AND deleted_at IS NULL
-		ORDER BY name ASC LIMIT $1 OFFSET $2`, limit, offset)
+			SELECT l.id, l.owner_id, l.name, l.description, l.is_cooperative, l.visibility,
+			       l.deleted_at, l.created_at, l.updated_at,
+			       COUNT(lm.user_id) FILTER (WHERE member_users.deleted_at IS NULL)
+			FROM libraries l
+			LEFT JOIN library_members lm ON lm.library_id=l.id
+			LEFT JOIN users member_users ON member_users.id=lm.user_id
+			WHERE l.visibility='public' AND l.deleted_at IS NULL
+			GROUP BY l.id
+			ORDER BY l.name ASC LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list public libraries: %w", err)
 	}
@@ -147,7 +162,10 @@ func (r *Repository) ListPublicLibraries(ctx context.Context, page, limit int) (
 	var libs []Library
 	for rows.Next() {
 		var lib Library
-		if err := scanLibrary(rows, &lib); err != nil {
+		if err := rows.Scan(
+			&lib.ID, &lib.OwnerID, &lib.Name, &lib.Description, &lib.IsCooperative, &lib.Visibility,
+			&lib.DeletedAt, &lib.CreatedAt, &lib.UpdatedAt, &lib.MemberCount,
+		); err != nil {
 			return nil, 0, err
 		}
 		libs = append(libs, lib)
@@ -203,7 +221,7 @@ func (r *Repository) GetMember(ctx context.Context, libraryID, userID string) (*
 		SELECT `+memberColumns+`
 		FROM library_members lm
 		JOIN users u ON u.id=lm.user_id
-		WHERE lm.library_id=$1 AND lm.user_id=$2`, libraryID, userID), &m)
+			WHERE lm.library_id=$1 AND lm.user_id=$2 AND u.deleted_at IS NULL`, libraryID, userID), &m)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -218,7 +236,7 @@ func (r *Repository) ListMembers(ctx context.Context, libraryID string) ([]Libra
 		SELECT `+memberColumns+`
 		FROM library_members lm
 		JOIN users u ON u.id=lm.user_id
-		WHERE lm.library_id=$1
+		WHERE lm.library_id=$1 AND u.deleted_at IS NULL
 		ORDER BY lm.is_owner DESC, lm.joined_at ASC`, libraryID)
 	if err != nil {
 		return nil, fmt.Errorf("list members: %w", err)
@@ -272,14 +290,32 @@ func (r *Repository) UpdateMemberPermissions(ctx context.Context, libraryID, use
 }
 
 func (r *Repository) RemoveMember(ctx context.Context, libraryID, userID string) error {
-	tag, err := r.db.Exec(ctx, `
-		DELETE FROM library_members WHERE library_id=$1 AND user_id=$2 AND is_owner=false`,
-		libraryID, userID)
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin remove member: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM library_book_copies lbc
+		USING book_copies bc
+		WHERE lbc.book_copy_id=bc.id
+		  AND lbc.library_id=$1
+		  AND bc.owner_id=$2`, libraryID, userID); err != nil {
+		return fmt.Errorf("remove member books: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		DELETE FROM library_members
+		WHERE library_id=$1 AND user_id=$2 AND is_owner=false`, libraryID, userID)
 	if err != nil {
 		return fmt.Errorf("remove member: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("member not found or is owner")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit remove member: %w", err)
 	}
 	return nil
 }
@@ -435,29 +471,50 @@ func (r *Repository) ListUserInvitations(ctx context.Context, userID string) ([]
 
 // ─── Library books ────────────────────────────────────────────────────────────
 
-func (r *Repository) AddBookCopyToLibrary(ctx context.Context, libraryID, copyID string) error {
-	_, err := r.db.Exec(ctx, `
-		INSERT INTO library_book_copies (library_id, book_copy_id)
-		VALUES ($1,$2) ON CONFLICT DO NOTHING`, libraryID, copyID)
+func (r *Repository) AddBookCopyToLibrary(ctx context.Context, libraryID, userID, copyID string) error {
+	tag, err := r.db.Exec(ctx, `
+			INSERT INTO library_book_copies (library_id, book_copy_id)
+			SELECT l.id, bc.id
+			FROM libraries l
+			JOIN library_members lm ON lm.library_id=l.id AND lm.user_id=$2
+			JOIN book_copies bc ON bc.id=$3
+			WHERE l.id=$1
+			  AND l.deleted_at IS NULL
+			  AND lm.can_add
+			  AND bc.owner_id=$2
+			  AND bc.deleted_at IS NULL
+			ON CONFLICT (library_id, book_copy_id) DO UPDATE
+			SET book_copy_id=EXCLUDED.book_copy_id`, libraryID, userID, copyID)
 	if err != nil {
 		return fmt.Errorf("add book to library: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrCopyNotOwned
 	}
 	return nil
 }
 
-func (r *Repository) RemoveBookCopyFromLibrary(ctx context.Context, libraryID, copyID string) error {
+func (r *Repository) RemoveBookCopyFromLibrary(ctx context.Context, libraryID, userID, copyID string) error {
 	tag, err := r.db.Exec(ctx, `
-		DELETE FROM library_book_copies WHERE library_id=$1 AND book_copy_id=$2`, libraryID, copyID)
+			DELETE FROM library_book_copies lbc
+			USING libraries l, library_members lm
+			WHERE lbc.library_id=l.id
+			  AND lm.library_id=l.id
+			  AND l.id=$1
+			  AND lm.user_id=$2
+			  AND lm.can_remove
+			  AND l.deleted_at IS NULL
+			  AND lbc.book_copy_id=$3`, libraryID, userID, copyID)
 	if err != nil {
 		return fmt.Errorf("remove book from library: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("book copy not found in library")
+		return ErrBookNotInLibrary
 	}
 	return nil
 }
 
-func (r *Repository) ListLibraryBooks(ctx context.Context, libraryID string, page, limit int) ([]books.UserBook, int, error) {
+func (r *Repository) ListLibraryBooks(ctx context.Context, libraryID string, page, limit int) ([]LibraryBook, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -468,10 +525,79 @@ func (r *Repository) ListLibraryBooks(ctx context.Context, libraryID string, pag
 
 	var total int
 	if err := r.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM library_book_copies lbc
-		JOIN book_copies bc ON bc.id=lbc.book_copy_id
-		WHERE lbc.library_id=$1 AND bc.deleted_at IS NULL`, libraryID).Scan(&total); err != nil {
+			SELECT COUNT(*)
+			FROM library_book_copies lbc
+			JOIN book_copies bc ON bc.id=lbc.book_copy_id
+			JOIN book_editions be ON be.id=bc.edition_id
+			JOIN books b ON b.id=be.book_id
+			WHERE lbc.library_id=$1
+			  AND bc.deleted_at IS NULL
+			  AND be.deleted_at IS NULL AND be.status='approved'
+			  AND b.deleted_at IS NULL AND b.status='approved'`, libraryID).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count library books: %w", err)
+	}
+
+	rows, err := r.db.Query(ctx, `
+			SELECT lbc.library_id, lbc.book_copy_id, b.id, be.id, b.title,
+			       ARRAY(
+			           SELECT c.name
+			           FROM book_contributors bco
+			           JOIN contributors c ON c.id=bco.contributor_id
+			           WHERE bco.book_id=b.id
+			             AND bco.role IN ('author', 'co_author')
+			             AND c.deleted_at IS NULL
+			             AND c.status='approved'
+			           ORDER BY c.name
+			       ),
+			       be.format, be.language, be.cover_url, lbc.added_at
+			FROM library_book_copies lbc
+			JOIN book_copies bc ON bc.id=lbc.book_copy_id
+			JOIN book_editions be ON be.id=bc.edition_id
+			JOIN books b ON b.id=be.book_id
+			WHERE lbc.library_id=$1
+			  AND bc.deleted_at IS NULL
+			  AND be.deleted_at IS NULL AND be.status='approved'
+			  AND b.deleted_at IS NULL AND b.status='approved'
+			ORDER BY lbc.added_at DESC
+			LIMIT $2 OFFSET $3`, libraryID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list library books: %w", err)
+	}
+	defer rows.Close()
+
+	var libraryBooks []LibraryBook
+	for rows.Next() {
+		var book LibraryBook
+		if err := rows.Scan(
+			&book.LibraryID, &book.CopyID, &book.BookID, &book.EditionID, &book.Title,
+			&book.Authors, &book.Format, &book.Language, &book.CoverURL, &book.AddedAt,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan library book: %w", err)
+		}
+		libraryBooks = append(libraryBooks, book)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return libraryBooks, total, nil
+}
+
+func (r *Repository) ListUserLibraryBooks(ctx context.Context, libraryID, userID string, page, limit int) ([]books.UserBook, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	var total int
+	if err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM library_book_copies lbc
+		JOIN book_copies bc ON bc.id=lbc.book_copy_id
+		WHERE lbc.library_id=$1 AND bc.owner_id=$2 AND bc.deleted_at IS NULL`, libraryID, userID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count user library books: %w", err)
 	}
 
 	rows, err := r.db.Query(ctx, `
@@ -485,11 +611,15 @@ func (r *Repository) ListLibraryBooks(ctx context.Context, libraryID string, pag
 		JOIN book_copies bc ON bc.id=lbc.book_copy_id
 		JOIN book_editions be ON be.id=bc.edition_id
 		JOIN books b ON b.id=be.book_id
-		WHERE lbc.library_id=$1 AND bc.deleted_at IS NULL AND be.deleted_at IS NULL AND b.deleted_at IS NULL
+		WHERE lbc.library_id=$1
+		  AND bc.owner_id=$2
+		  AND bc.deleted_at IS NULL
+		  AND be.deleted_at IS NULL
+		  AND b.deleted_at IS NULL
 		ORDER BY lbc.added_at DESC
-		LIMIT $2 OFFSET $3`, libraryID, limit, offset)
+		LIMIT $3 OFFSET $4`, libraryID, userID, limit, offset)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list library books: %w", err)
+		return nil, 0, fmt.Errorf("list user library books: %w", err)
 	}
 	defer rows.Close()
 
@@ -504,7 +634,7 @@ func (r *Repository) ListLibraryBooks(ctx context.Context, libraryID string, pag
 			&ub.Book.ID, &ub.Book.Title, &ub.Book.Description, &ub.Book.SeriesID, &ub.Book.SeriesPosition,
 			&ub.Book.Status, &ub.Book.DeletedAt, &ub.Book.CreatedAt, &ub.Book.UpdatedAt,
 		); err != nil {
-			return nil, 0, fmt.Errorf("scan library book: %w", err)
+			return nil, 0, fmt.Errorf("scan user library book: %w", err)
 		}
 		ub.Book.Authors = []books.Contributor{}
 		ub.Book.Genres = []books.Genre{}

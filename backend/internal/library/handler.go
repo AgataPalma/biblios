@@ -2,6 +2,7 @@ package library
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/AgataPalma/biblios/internal/apictx"
@@ -89,10 +90,10 @@ func (h *Handler) GetLibrary(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	lib, err := h.service.GetLibrary(r.Context(), id, claims.UserID)
 	if err != nil {
-		switch err.Error() {
-		case "library not found":
+		switch {
+		case errors.Is(err, ErrLibraryNotFound):
 			httpx.WriteError(w, http.StatusNotFound, err.Error())
-		case "access denied":
+		case errors.Is(err, ErrAccessDenied):
 			httpx.WriteError(w, http.StatusForbidden, err.Error())
 		default:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to get library")
@@ -143,18 +144,15 @@ func (h *Handler) DeleteLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 
-	// Only owner can delete
-	m, err := h.service.repo.GetMember(r.Context(), id, claims.UserID)
-	if err != nil || m == nil || !m.IsOwner {
-		httpx.WriteError(w, http.StatusForbidden, "only the library owner can delete this library")
-		return
-	}
-	if err := h.service.repo.DeleteLibrary(r.Context(), id); err != nil {
-		if err.Error() == "library not found" {
+	if err := h.service.DeleteLibrary(r.Context(), id, claims.UserID); err != nil {
+		switch {
+		case errors.Is(err, ErrLibraryNotFound):
 			httpx.WriteError(w, http.StatusNotFound, err.Error())
-			return
+		case errors.Is(err, ErrNotMember), errors.Is(err, ErrAccessDenied):
+			httpx.WriteError(w, http.StatusForbidden, "only the library owner can delete this library")
+		default:
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to delete library")
 		}
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete library")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "library deleted"})
@@ -171,8 +169,8 @@ func (h *Handler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	members, err := h.service.ListMembers(r.Context(), id, claims.UserID)
 	if err != nil {
-		switch err.Error() {
-		case "not a member of this library":
+		switch {
+		case errors.Is(err, ErrNotMember), errors.Is(err, ErrAccessDenied):
 			httpx.WriteError(w, http.StatusForbidden, err.Error())
 		default:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to list members")
@@ -345,23 +343,23 @@ func (h *Handler) ListLibraryBooks(w http.ResponseWriter, r *http.Request) {
 	libraryID := chi.URLParam(r, "id")
 	page, limit := httpx.PaginationParams(r)
 
-	userBooks, total, err := h.service.ListLibraryBooks(r.Context(), libraryID, claims.UserID, page, limit)
+	libraryBooks, total, err := h.service.ListLibraryBooks(r.Context(), libraryID, claims.UserID, page, limit)
 	if err != nil {
-		switch err.Error() {
-		case "library not found":
+		switch {
+		case errors.Is(err, ErrLibraryNotFound):
 			httpx.WriteError(w, http.StatusNotFound, err.Error())
-		case "access denied":
+		case errors.Is(err, ErrAccessDenied):
 			httpx.WriteError(w, http.StatusForbidden, err.Error())
 		default:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to list books")
 		}
 		return
 	}
-	if userBooks == nil {
-		userBooks = []books.UserBook{}
+	if libraryBooks == nil {
+		libraryBooks = []LibraryBook{}
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"books": userBooks,
+		"books": libraryBooks,
 		"total": total,
 		"page":  page,
 		"limit": limit,
@@ -387,9 +385,11 @@ func (h *Handler) AddBookToLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.AddBookToLibrary(r.Context(), libraryID, claims.UserID, req.CopyID); err != nil {
-		switch err.Error() {
-		case "not a member of this library", "you do not have permission to add books to this library":
+		switch {
+		case errors.Is(err, ErrNotMember), err.Error() == "you do not have permission to add books to this library":
 			httpx.WriteError(w, http.StatusForbidden, err.Error())
+		case errors.Is(err, ErrCopyNotOwned):
+			httpx.WriteError(w, http.StatusNotFound, err.Error())
 		default:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to add book")
 		}
@@ -410,10 +410,10 @@ func (h *Handler) RemoveBookFromLibrary(w http.ResponseWriter, r *http.Request) 
 	copyID := chi.URLParam(r, "copyId")
 
 	if err := h.service.RemoveBookFromLibrary(r.Context(), libraryID, claims.UserID, copyID); err != nil {
-		switch err.Error() {
-		case "not a member of this library", "you do not have permission to remove books from this library":
+		switch {
+		case errors.Is(err, ErrNotMember), err.Error() == "you do not have permission to remove books from this library":
 			httpx.WriteError(w, http.StatusForbidden, err.Error())
-		case "book copy not found in library":
+		case errors.Is(err, ErrBookNotInLibrary):
 			httpx.WriteError(w, http.StatusNotFound, err.Error())
 		default:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to remove book")
@@ -442,7 +442,7 @@ func (h *Handler) GetMyLibrary(w http.ResponseWriter, r *http.Request) {
 	// Default library is the first one (created at registration)
 	lib := libs[0]
 	page, limit := httpx.PaginationParams(r)
-	userBooks, total, err := h.service.ListLibraryBooks(r.Context(), lib.ID, claims.UserID, page, limit)
+	userBooks, total, err := h.service.ListMyLibraryBooks(r.Context(), lib.ID, claims.UserID, page, limit)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to get library books")
 		return
