@@ -2,7 +2,9 @@ package users
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -104,29 +106,143 @@ func (r *Repository) SoftDelete(ctx context.Context, userID string) error {
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback(ctx)
-		}
-	}()
+	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Soft-delete copies
-	if _, err = tx.Exec(ctx, `UPDATE book_copies SET deleted_at=NOW() WHERE owner_id=$1 AND deleted_at IS NULL`, userID); err != nil {
+	var currentEmail string
+	if err := tx.QueryRow(ctx, `
+		SELECT email FROM users
+		WHERE id=$1 AND deleted_at IS NULL
+		FOR UPDATE`, userID).Scan(&currentEmail); errors.Is(err, pgx.ErrNoRows) {
+		return ErrUserNotFound
+	} else if err != nil {
+		return fmt.Errorf("lock user for deletion: %w", err)
+	}
+
+	anonymizedID := strings.ReplaceAll(userID, "-", "")
+	anonymizedEmail := "deleted+" + anonymizedID + "@invalid.local"
+	anonymizedUsername := "deleted_" + anonymizedID
+
+	// Revoke invitations involving this account and remove the invited email,
+	// which is personal data even when invited_user_id was not resolved.
+	if _, err = tx.Exec(ctx, `
+		UPDATE library_invitations
+		SET status = CASE WHEN status='pending' THEN 'revoked' ELSE status END,
+		    invited_user_id = CASE WHEN invited_user_id=$1 THEN NULL ELSE invited_user_id END,
+		    invited_email = CASE
+		        WHEN invited_user_id=$1 OR LOWER(invited_email)=LOWER($2) THEN $3
+		        ELSE invited_email
+		    END
+		WHERE invited_by=$1
+		   OR invited_user_id=$1
+		   OR LOWER(invited_email)=LOWER($2)`, userID, currentEmail, anonymizedEmail); err != nil {
+		return fmt.Errorf("revoke invitations: %w", err)
+	}
+
+	// Libraries cannot retain a deleted account as an active owner.
+	if _, err = tx.Exec(ctx, `
+		UPDATE libraries
+		SET deleted_at=NOW(), updated_at=NOW()
+		WHERE owner_id=$1 AND deleted_at IS NULL`, userID); err != nil {
+		return fmt.Errorf("soft delete owned libraries: %w", err)
+	}
+
+	// Remove shared inventory links before making the physical copies private
+	// and inaccessible. Personal copy state is erased rather than retained.
+	if _, err = tx.Exec(ctx, `
+		DELETE FROM library_book_copies lbc
+		USING book_copies bc
+		WHERE lbc.book_copy_id=bc.id AND bc.owner_id=$1`, userID); err != nil {
+		return fmt.Errorf("remove library copy links: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `
+		DELETE FROM shelf_books sb
+		USING book_copies bc
+		WHERE sb.copy_id=bc.id AND bc.owner_id=$1`, userID); err != nil {
+		return fmt.Errorf("remove shelf copy links: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `
+		DELETE FROM collection_books cb
+		USING book_copies bc
+		WHERE cb.book_copy_id=bc.id AND bc.owner_id=$1`, userID); err != nil {
+		return fmt.Errorf("remove collection copy links: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM collection_books WHERE added_by=$1`, userID); err != nil {
+		return fmt.Errorf("remove contributed collection links: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `
+		UPDATE collections SET deleted_at=NOW(), updated_at=NOW()
+		WHERE created_by=$1 AND deleted_at IS NULL`, userID); err != nil {
+		return fmt.Errorf("soft delete created collections: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM shelves WHERE user_id=$1`, userID); err != nil {
+		return fmt.Errorf("delete shelves: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `
+		DELETE FROM user_copy_states WHERE user_id=$1`, userID); err != nil {
+		return fmt.Errorf("delete personal copy states: %w", err)
+	}
+
+	if _, err = tx.Exec(ctx, `
+		UPDATE book_copies
+		SET deleted_at=NOW(), personal_notes=NULL, location=NULL, borrowed_from=NULL, updated_at=NOW()
+		WHERE owner_id=$1 AND deleted_at IS NULL`, userID); err != nil {
 		return fmt.Errorf("soft delete copies: %w", err)
 	}
-	// Remove library memberships
+	if _, err = tx.Exec(ctx, `
+		UPDATE book_copies SET borrowed_from=NULL, updated_at=NOW()
+		WHERE borrowed_from=$1`, userID); err != nil {
+		return fmt.Errorf("anonymise borrowed copies: %w", err)
+	}
 	if _, err = tx.Exec(ctx, `DELETE FROM library_members WHERE user_id=$1`, userID); err != nil {
 		return fmt.Errorf("remove memberships: %w", err)
 	}
-	// Anonymise reviews
 	if _, err = tx.Exec(ctx, `UPDATE reviews SET user_id=NULL WHERE user_id=$1`, userID); err != nil {
 		return fmt.Errorf("anonymise reviews: %w", err)
 	}
-	// Soft-delete user
-	if _, err = tx.Exec(ctx, `UPDATE users SET deleted_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, userID); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM notifications WHERE user_id=$1`, userID); err != nil {
+		return fmt.Errorf("delete notifications: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM email_queue WHERE user_id=$1`, userID); err != nil {
+		return fmt.Errorf("delete queued email: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM reading_sessions WHERE user_id=$1`, userID); err != nil {
+		return fmt.Errorf("delete reading sessions: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM reading_challenges WHERE user_id=$1`, userID); err != nil {
+		return fmt.Errorf("delete reading challenges: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM import_jobs WHERE user_id=$1`, userID); err != nil {
+		return fmt.Errorf("delete import jobs: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM review_likes WHERE user_id=$1`, userID); err != nil {
+		return fmt.Errorf("delete review likes: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM user_follows WHERE follower_id=$1 OR following_id=$1`, userID); err != nil {
+		return fmt.Errorf("delete user follows: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE quotes SET user_id=NULL WHERE user_id=$1`, userID); err != nil {
+		return fmt.Errorf("anonymise quotes: %w", err)
+	}
+
+	if _, err = tx.Exec(ctx, `
+		UPDATE users
+		SET email=$2,
+		    username=$3,
+		    password_hash='deleted-account',
+		    role='user',
+		    is_admin=false,
+		    theme='default-light',
+		    bio=NULL,
+		    avatar_url=NULL,
+		    deleted_at=NOW(),
+		    updated_at=NOW()
+		WHERE id=$1 AND deleted_at IS NULL`, userID, anonymizedEmail, anonymizedUsername); err != nil {
 		return fmt.Errorf("soft delete user: %w", err)
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit account deletion: %w", err)
+	}
+	return nil
 }
 
 // CreateDefaultLibrary creates the default private library for a new user.

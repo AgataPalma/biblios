@@ -105,7 +105,7 @@ func main() {
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	authHandler := auth.NewHandler(userSvc, cfg.JWTSecret, tStore)
-	userHandler := users.NewHandler(userSvc)
+	userHandler := users.NewHandler(userSvc, tStore)
 	bookHandler := books.NewHandler(bookSvc, lookupSvc, cfg.CoversDir)
 	lookupHandler := lookup.NewHandler(lookupSvc)
 	libraryHandler := library.NewHandler(librarySvc)

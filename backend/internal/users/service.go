@@ -9,6 +9,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var ErrUserNotFound = errors.New("user not found")
+
 type Service struct {
 	repo *Repository
 }
