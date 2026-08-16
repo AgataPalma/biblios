@@ -2,31 +2,13 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getSeriesById } from '../api/series'
 import type { SeriesBook } from '../types'
-import { Spinner, EmptyState, Badge } from '../components'
-
-// ── Reading status helpers ────────────────────────────────────────────────────
-
-function statusLabel(status: string): string {
-    if (status === 'reading') return 'Reading'
-    if (status === 'read') return 'Read'
-    if (status === 'want_to_read') return 'Want to Read'
-    return status
-}
-
-function statusVariant(status: string): 'default' | 'info' | 'success' {
-    if (status === 'reading') return 'info'
-    if (status === 'read') return 'success'
-    return 'default'
-}
+import { Spinner, EmptyState } from '../components'
 
 // ── Book row ──────────────────────────────────────────────────────────────────
 
 function BookRow({ seriesBook }: { seriesBook: SeriesBook }) {
-    const { book, position, status } = seriesBook
-    const authorNames = book.authors?.map(a => a.name).join(', ') ?? ''
-
-    // Find a cover URL from the first edition that has one
-    const coverUrl = book.editions?.find(e => e.cover_url)?.cover_url
+    const { title, authors, cover_url: coverUrl, series_position: position } = seriesBook
+    const authorNames = authors.join(', ')
 
     return (
         <div
@@ -70,7 +52,7 @@ function BookRow({ seriesBook }: { seriesBook: SeriesBook }) {
                 {coverUrl ? (
                     <img
                         src={coverUrl}
-                        alt={book.title}
+                        alt={title}
                         style={{
                             width: '100%',
                             height: '100%',
@@ -96,7 +78,7 @@ function BookRow({ seriesBook }: { seriesBook: SeriesBook }) {
                         textOverflow: 'ellipsis',
                     }}
                 >
-                    {book.title}
+                    {title}
                 </div>
                 {authorNames && (
                     <div
@@ -114,17 +96,6 @@ function BookRow({ seriesBook }: { seriesBook: SeriesBook }) {
                     </div>
                 )}
             </div>
-
-            {/* Reading status badge */}
-            {status && (
-                <div style={{ flexShrink: 0 }}>
-                    <Badge
-                        label={statusLabel(status)}
-                        variant={statusVariant(status)}
-                        size="sm"
-                    />
-                </div>
-            )}
         </div>
     )
 }
@@ -144,10 +115,10 @@ export default function SeriesDetailPage() {
     // Sort books by position ascending, nulls last
     const sortedBooks = data?.books
         ? [...data.books].sort((a, b) => {
-              if (a.position == null && b.position == null) return 0
-              if (a.position == null) return 1
-              if (b.position == null) return -1
-              return a.position - b.position
+              if (a.series_position == null && b.series_position == null) return 0
+              if (a.series_position == null) return 1
+              if (b.series_position == null) return -1
+              return a.series_position - b.series_position
           })
         : []
 
@@ -207,9 +178,9 @@ export default function SeriesDetailPage() {
                                 color: 'var(--color-text)',
                             }}
                         >
-                            {data.series.name}
+                            {data.name}
                         </h1>
-                        {data.series.description && (
+                        {data.description && (
                             <p
                                 style={{
                                     margin: 0,
@@ -219,7 +190,7 @@ export default function SeriesDetailPage() {
                                     lineHeight: 1.5,
                                 }}
                             >
-                                {data.series.description}
+                                {data.description}
                             </p>
                         )}
                     </div>
