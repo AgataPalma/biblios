@@ -85,7 +85,7 @@ describe('Books preservation', () => {
     it('GET /books — correct URL and returns { books, total, page, limit }', async () => {
         const capturedRequests: Array<{ method: string; url: string }> = []
 
-        mock.onGet('/books').reply((config) => {
+        mock.onGet('/books').reply(() => {
             capturedRequests.push({ method: 'get', url: '/books' })
             return [200, { books: [], total: 0, page: 1, limit: 20 }]
         })
@@ -282,7 +282,7 @@ describe('Series list preservation', () => {
     it('GET /series — correct URL and returns { series, total, page, limit }', async () => {
         const capturedRequests: Array<{ method: string; url: string }> = []
 
-        mock.onGet('/series').reply((config) => {
+        mock.onGet('/series').reply(() => {
             capturedRequests.push({ method: 'get', url: '/series' })
             return [200, { series: [], total: 0, page: 1, limit: 20 }]
         })
