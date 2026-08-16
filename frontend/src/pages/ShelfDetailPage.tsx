@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getShelf, removeBookFromShelf } from '../api/shelves'
-import type { ShelfBook } from '../types'
-import { Spinner, EmptyState, Badge, Button } from '../components'
+import { getShelf, getShelves, removeBookFromShelf } from '../api/shelves'
+import type { UserBook } from '../types'
+import { Spinner, EmptyState, Badge } from '../components'
 
 // ── Reading status helpers ────────────────────────────────────────────────────
 
@@ -24,13 +24,12 @@ function readingStatusVariant(status: ReadingStatus): 'default' | 'info' | 'succ
 // ── Book row ──────────────────────────────────────────────────────────────────
 
 interface BookRowProps {
-    book: ShelfBook
-    shelfId: string
+    book: UserBook
     onRemove: (copyId: string) => void
     isRemoving: boolean
 }
 
-function BookRow({ book, shelfId: _shelfId, onRemove, isRemoving }: BookRowProps) {
+function BookRow({ book, onRemove, isRemoving }: BookRowProps) {
     const [confirming, setConfirming] = useState(false)
     const [hovered, setHovered] = useState(false)
 
@@ -226,17 +225,27 @@ export default function ShelfDetailPage() {
     const queryClient = useQueryClient()
 
     // ── Data fetching ─────────────────────────────────────────────────────────
-    const { data, isLoading, isError } = useQuery({
-        queryKey: ['shelf', id],
-        queryFn: () => getShelf(id!),
+    const { data: shelves, isLoading: shelvesLoading, isError: shelvesError } = useQuery({
+        queryKey: ['shelves'],
+        queryFn: getShelves,
+    })
+
+    const { data, isLoading: booksLoading, isError: booksError } = useQuery({
+        queryKey: ['shelf-books', id, { page: 1, limit: 100 }],
+        queryFn: () => getShelf(id!, 1, 100),
         enabled: !!id,
     })
+
+    const shelf = shelves?.find(item => item.id === id)
+    const isLoading = shelvesLoading || booksLoading
+    const isError = shelvesError || booksError
 
     // ── Remove book mutation ──────────────────────────────────────────────────
     const removeMutation = useMutation({
         mutationFn: (copyId: string) => removeBookFromShelf(id!, copyId),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['shelf', id] })
+            queryClient.invalidateQueries({ queryKey: ['shelf-books', id] })
+            queryClient.invalidateQueries({ queryKey: ['shelves'] })
         },
     })
 
@@ -283,8 +292,12 @@ export default function ShelfDetailPage() {
                 <EmptyState icon="⚠️" title="Failed to load shelf" />
             )}
 
+            {!isLoading && !isError && !shelf && (
+                <EmptyState icon="⚠️" title="Shelf not found" />
+            )}
+
             {/* Content */}
-            {!isLoading && !isError && data && (
+            {!isLoading && !isError && data && shelf && (
                 <>
                     {/* Page header */}
                     <div style={{ marginBottom: '28px' }}>
@@ -297,7 +310,7 @@ export default function ShelfDetailPage() {
                                 color: 'var(--color-text)',
                             }}
                         >
-                            {data.shelf.name}
+                            {shelf.name}
                         </h1>
                         <p
                             style={{
@@ -321,11 +334,10 @@ export default function ShelfDetailPage() {
                     ) : (
                         /* Book list */
                         <div>
-                            {data.books.map((book: ShelfBook) => (
+                            {data.books.map((book: UserBook) => (
                                 <BookRow
                                     key={book.copy_id}
                                     book={book}
-                                    shelfId={id!}
                                     onRemove={(copyId) => removeMutation.mutate(copyId)}
                                     isRemoving={removeMutation.isPending}
                                 />
