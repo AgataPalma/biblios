@@ -193,13 +193,13 @@ describe('Bug 3 — Challenge fields', () => {
         // On fixed code: result is Challenge[] directly.
         expect(Array.isArray(result)).toBe(true)
 
-        const challenges = result as unknown as Array<Record<string, unknown>>
+        const challenges = result
         expect(challenges[0].year).toBe(2024)
         expect(challenges[0].goal).toBe(12)
 
         // On unfixed code, the frontend type uses `goal_books` not `goal` — undefined.
-        expect(challenges[0].goal_books).toBeUndefined()
-        expect(challenges[0].title).toBeUndefined()
+        expect('goal_books' in challenges[0]).toBe(false)
+        expect('title' in challenges[0]).toBe(false)
     })
 
     it('should send { year, goal } when creating a challenge (not title/start_date/end_date/goal_books)', async () => {
@@ -215,7 +215,7 @@ describe('Bug 3 — Challenge fields', () => {
         // On unfixed code, createChallenge expects { title, start_date, end_date, goal_books }.
         // On fixed code, it expects { year: number, goal: number }.
         // We call with the correct (fixed) payload shape.
-        await createChallenge({ year: 2024, goal: 12 } as Parameters<typeof createChallenge>[0])
+        await createChallenge({ year: 2024, goal: 12 })
 
         // On unfixed code: capturedBody contains title/start_date/end_date/goal_books (wrong fields).
         // On fixed code: capturedBody contains only year and goal.
@@ -226,6 +226,27 @@ describe('Bug 3 — Challenge fields', () => {
         expect(capturedBody!.start_date).toBeUndefined()
         expect(capturedBody!.end_date).toBeUndefined()
         expect(capturedBody!.goal_books).toBeUndefined()
+    })
+
+    it('should fetch challenge progress from the challenge progress endpoint', async () => {
+        const progress = {
+            challenge: {
+                id: '1',
+                user_id: 'u1',
+                year: 2024,
+                goal: 12,
+                created_at: '2024-01-01T00:00:00Z',
+            },
+            books_read: 5,
+            books_remaining: 7,
+            progress_pct: 41.67,
+            monthly_pace: 1.25,
+        }
+
+        mock.onGet('/reading/challenges/1/progress').reply(200, progress)
+
+        const { getChallengeProgress } = await import('../reading')
+        await expect(getChallengeProgress('1')).resolves.toEqual(progress)
     })
 })
 
@@ -258,7 +279,7 @@ describe('Bug 4 — Session field names', () => {
         const { getSessions } = await import('../reading')
         const response = await getSessions()
 
-        const session = response.sessions[0] as Record<string, unknown>
+        const session = response.sessions[0] as unknown as Record<string, unknown>
 
         // On unfixed code: session.date and session.notes are the typed fields,
         // but the backend returns logged_date and note — so they are undefined.
@@ -295,7 +316,7 @@ describe('Bug 4 — Session field names', () => {
             logged_date: '2024-06-01',
             pages_read: 30,
             note: 'good session',
-        } as Parameters<typeof createSession>[0])
+        })
 
         expect(capturedBody).not.toBeNull()
         expect(capturedBody!.logged_date).toBe('2024-06-01')

@@ -350,8 +350,9 @@ export interface ReadingSession {
     user_id: string
     copy_id: string
     logged_date: string
-    pages_read: number | null
-    note: string | null
+    pages_read?: number | null
+    progress_pct?: number | null
+    note?: string | null
     created_at: string
 }
 
@@ -367,6 +368,8 @@ export interface ChallengeProgress {
 export interface SessionsResponse {
     sessions: ReadingSession[]
     total: number
+    page: number
+    limit: number
 }
 
 // ── Book List ─────────────────────────────────────────────────────────────────
