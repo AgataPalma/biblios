@@ -146,18 +146,14 @@ export async function getMyLibrary(page = 1, limit = 20) {
     return res.data
 }
 
-export interface UpdateCopyPayload {
+export interface UpdateReadingStatusPayload {
     status: 'want_to_read' | 'reading' | 'read'
     current_page?: number | null
-    started_reading_at?: string | null   // ISO8601 or empty string to clear
-    finished_reading_at?: string | null  // ISO8601 or empty string to clear
-    owned_by_user?: boolean
-    borrowed_from?: string | null
-    location?: string | null
 }
 
-export async function updateReadingStatus(copyId: string, payload: UpdateCopyPayload): Promise<void> {
-    await apiClient.put(`/books/copies/${copyId}/status`, payload)
+export async function updateReadingStatus(copyId: string, payload: UpdateReadingStatusPayload): Promise<void> {
+    const { status, current_page } = payload
+    await apiClient.put(`/books/copies/${copyId}/status`, { status, current_page })
 }
 
 export async function removeCopy(copyId: string): Promise<void> {

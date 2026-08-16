@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getBook, addCopy, updateBook, uploadEditionCover, updateReadingStatus, removeCopy, deleteBook, deleteEdition, getBookReviews, submitReview, updateMyReview, type UpdateCopyPayload } from '../api/books'
+import { getBook, addCopy, updateBook, uploadEditionCover, updateReadingStatus, removeCopy, deleteBook, deleteEdition, getBookReviews, submitReview, updateMyReview, type UpdateReadingStatusPayload } from '../api/books'
 import { Badge, Card, Modal, Spinner } from '../components'
 import { useAuth } from '../context/AuthContext'
 import type { Book, Edition, UserBook, Review } from '../types'
@@ -106,15 +106,10 @@ export default function BookDetailPage() {
     const [coverPreview, setCoverPreview]           = useState<string | undefined>()
     const fileInputRef = useRef<HTMLInputElement>(null)
 
-    // Copy management (reading progress + ownership) — only when arriving from library
+    // Copy reading status — only when arriving from library
     const [copyEditing, setCopyEditing]             = useState(false)
     const [copyStatus, setCopyStatus]               = useState<'want_to_read'|'reading'|'read'>('want_to_read')
     const [copyPage, setCopyPage]                   = useState('')
-    const [copyStarted, setCopyStarted]             = useState('')
-    const [copyFinished, setCopyFinished]           = useState('')
-    const [copyOwnedByUser, setCopyOwnedByUser]     = useState(true)
-    const [copyBorrowedFrom, setCopyBorrowedFrom]   = useState('')
-    const [copyLocation, setCopyLocation]           = useState('')
     const [copySaveError, setCopySaveError]         = useState('')
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
     const [deleteEditionId, setDeleteEditionId]     = useState<string | null>(null)
@@ -145,24 +140,14 @@ export default function BookDetailPage() {
         if (!userBook) return
         setCopyStatus(userBook.reading_status)
         setCopyPage(userBook.current_page ? String(userBook.current_page) : '')
-        setCopyStarted(userBook.started_reading_at ? userBook.started_reading_at.slice(0, 10) : '')
-        setCopyFinished(userBook.finished_reading_at ? userBook.finished_reading_at.slice(0, 10) : '')
-        setCopyOwnedByUser(userBook.owned_by_user)
-        setCopyBorrowedFrom(userBook.borrowed_from ?? '')
-        setCopyLocation(userBook.location ?? '')
         setCopySaveError(''); setCopyEditing(true)
     }
 
     const copySaveMutation = useMutation({
         mutationFn: () => {
-            const payload: UpdateCopyPayload = {
-                status:             copyStatus,
-                current_page:       copyPage ? parseInt(copyPage) : null,
-                started_reading_at: copyStarted || null,
-                finished_reading_at: copyFinished || null,
-                owned_by_user:      copyOwnedByUser,
-                borrowed_from:      copyBorrowedFrom || null,
-                location:           copyLocation || null,
+            const payload: UpdateReadingStatusPayload = {
+                status: copyStatus,
+                current_page: copyPage ? parseInt(copyPage) : null,
             }
             return updateReadingStatus(copyIdParam!, payload)
         },
@@ -513,25 +498,8 @@ export default function BookDetailPage() {
                                         <ToggleGroup value={copyStatus} onChange={v => setCopyStatus(v as typeof copyStatus)} options={[{ value: 'want_to_read', label: 'Want to read' }, { value: 'reading', label: 'Reading' }, { value: 'read', label: 'Read' }]} />
                                     </div>
                                     {copyStatus === 'reading' && (
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                            <div><FieldLabel label="Current page" hint="Optional" /><TextInput value={copyPage} onChange={setCopyPage} placeholder="e.g. 142" type="number" /></div>
-                                            <div><FieldLabel label="Started reading" /><TextInput value={copyStarted} onChange={setCopyStarted} placeholder="YYYY-MM-DD" type="date" /></div>
-                                        </div>
+                                        <div><FieldLabel label="Current page" hint="Optional" /><TextInput value={copyPage} onChange={setCopyPage} placeholder="e.g. 142" type="number" /></div>
                                     )}
-                                    {copyStatus === 'read' && (
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                            <div><FieldLabel label="Started reading" /><TextInput value={copyStarted} onChange={setCopyStarted} placeholder="YYYY-MM-DD" type="date" /></div>
-                                            <div><FieldLabel label="Finished reading" /><TextInput value={copyFinished} onChange={setCopyFinished} placeholder="YYYY-MM-DD" type="date" /></div>
-                                        </div>
-                                    )}
-                                    <div>
-                                        <FieldLabel label="Ownership" />
-                                        <ToggleGroup value={copyOwnedByUser ? 'owned' : 'borrowed'} onChange={v => setCopyOwnedByUser(v === 'owned')} options={[{ value: 'owned', label: '📦 I own it' }, { value: 'borrowed', label: '🤝 Borrowed' }]} />
-                                    </div>
-                                    {!copyOwnedByUser && (
-                                        <div><FieldLabel label="Borrowed from (user ID)" hint="Optional" /><TextInput value={copyBorrowedFrom} onChange={setCopyBorrowedFrom} placeholder="User ID of the lender" /></div>
-                                    )}
-                                    <div><FieldLabel label="Location" hint="Optional — e.g. shelf, box, on loan" /><TextInput value={copyLocation} onChange={setCopyLocation} placeholder="e.g. Living room shelf" /></div>
                                     {copySaveError && <p style={{ margin: 0, fontSize: '12px', color: 'var(--color-error)', fontFamily: 'var(--font-body)' }}>{copySaveError}</p>}
                                     <div style={{ display: 'flex', gap: '8px' }}>
                                         <button onClick={() => copySaveMutation.mutate()} disabled={copySaveMutation.isPending} style={{ padding: '8px 16px', background: 'var(--color-primary)', color: 'var(--color-primary-text)', border: 'none', borderRadius: 'var(--border-radius)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>{copySaveMutation.isPending ? 'Saving…' : '✓ Save'}</button>
