@@ -836,15 +836,16 @@ describe('Bug 10 — updateCopyStatus extra fields', () => {
 
         // On fixed code: updateReadingStatus should only send { status, current_page }.
         // On unfixed code: it sends all fields from UpdateCopyPayload including extra ones.
-        await updateReadingStatus('copy1', {
-            status: 'reading',
+        const legacyPayload = {
+            status: 'reading' as const,
             current_page: 42,
             started_reading_at: '2024-01-01T00:00:00Z',
             finished_reading_at: null,
             owned_by_user: true,
             borrowed_from: null,
             location: 'bookshelf',
-        })
+        }
+        await updateReadingStatus('copy1', legacyPayload)
 
         expect(capturedBody).not.toBeNull()
 
