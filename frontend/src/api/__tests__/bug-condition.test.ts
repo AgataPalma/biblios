@@ -362,11 +362,13 @@ describe('Bug 5 — Collection nested routes', () => {
 
         // On fixed code: getCollection("lib1", "col1") calls GET /libraries/lib1/collections/col1.
         // On unfixed code: getCollection("col1") calls GET /collections/col1 (404).
-        await getCollection('lib1', 'col1')
+        const result = await getCollection('lib1', 'col1')
 
         // On unfixed code: nestedRequests.length === 0, standaloneRequests.length === 1 — fails.
         expect(nestedRequests.length).toBe(1)
         expect(standaloneRequests.length).toBe(0)
+        expect(result.id).toBe('col1')
+        expect('collection' in result).toBe(false)
     })
 
     it('should send { copy_id } (not { book_id }) when adding a book to a collection', async () => {
@@ -388,6 +390,104 @@ describe('Bug 5 — Collection nested routes', () => {
 
         // On unfixed code: capturedBody.book_id === "copy123" (wrong field name).
         expect(capturedBody!.book_id).toBeUndefined()
+    })
+
+    it('should parse the collection list as a plain array', async () => {
+        const collections = [{
+            id: 'col1',
+            library_id: 'lib1',
+            name: 'My Collection',
+            is_public: true,
+            is_collaborative: false,
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+        }]
+        mock.onGet('/libraries/lib1/collections').reply(200, collections)
+
+        const { getCollections } = await import('../collections')
+        const result = await getCollections('lib1')
+
+        expect(result).toEqual(collections)
+        expect(Array.isArray(result)).toBe(true)
+    })
+
+    it('should create a collection using is_public instead of visibility', async () => {
+        let capturedBody: Record<string, unknown> | null = null
+        mock.onPost('/libraries/lib1/collections').reply((config) => {
+            capturedBody = JSON.parse(config.data as string)
+            return [201, {
+                id: 'col1',
+                library_id: 'lib1',
+                name: 'Private Collection',
+                is_public: false,
+                is_collaborative: false,
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            }]
+        })
+
+        const { createCollection } = await import('../collections')
+        await createCollection('lib1', { name: 'Private Collection', is_public: false })
+
+        expect(capturedBody).toEqual({ name: 'Private Collection', is_public: false })
+    })
+
+    it('should fetch collection books from the nested books endpoint with pagination', async () => {
+        const response = { books: [], total: 0, page: 2, limit: 25 }
+        mock.onGet('/libraries/lib1/collections/col1/books').reply((config) => {
+            expect(config.params).toEqual({ page: 2, limit: 25 })
+            return [200, response]
+        })
+
+        const { getCollectionBooks } = await import('../collections')
+        await expect(getCollectionBooks('lib1', 'col1', 2, 25)).resolves.toEqual(response)
+    })
+
+    it('should update collection visibility through the nested endpoint using is_public', async () => {
+        let capturedBody: Record<string, unknown> | null = null
+        mock.onPut('/libraries/lib1/collections/col1').reply((config) => {
+            capturedBody = JSON.parse(config.data as string)
+            return [200, {
+                id: 'col1',
+                library_id: 'lib1',
+                name: 'Updated',
+                is_public: false,
+                is_collaborative: false,
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-02T00:00:00Z',
+            }]
+        })
+
+        const { updateCollection } = await import('../collections')
+        await updateCollection('lib1', 'col1', { name: 'Updated', is_public: false })
+
+        expect(capturedBody).toEqual({ name: 'Updated', is_public: false })
+    })
+
+    it('should delete a collection through the nested endpoint', async () => {
+        const requests: string[] = []
+        mock.onDelete('/libraries/lib1/collections/col1').reply((config) => {
+            requests.push(config.url ?? '')
+            return [200, { message: 'collection deleted' }]
+        })
+
+        const { deleteCollection } = await import('../collections')
+        await deleteCollection('lib1', 'col1')
+
+        expect(requests).toEqual(['/libraries/lib1/collections/col1'])
+    })
+
+    it('should remove a copy through the nested path without a request body', async () => {
+        let requestBody: unknown = 'not-called'
+        mock.onDelete('/libraries/lib1/collections/col1/books/copy123').reply((config) => {
+            requestBody = config.data
+            return [200, { message: 'book removed from collection' }]
+        })
+
+        const { removeBookFromCollection } = await import('../collections')
+        await removeBookFromCollection('lib1', 'col1', 'copy123')
+
+        expect(requestBody).toBeUndefined()
     })
 
     it('should use is_public (not visibility) on collection objects', () => {

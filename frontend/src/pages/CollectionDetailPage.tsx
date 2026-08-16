@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getCollection, updateCollection, deleteCollection, removeBookFromCollection } from '../api/collections'
+import { getCollection, getCollectionBooks, updateCollection, deleteCollection, removeBookFromCollection } from '../api/collections'
 import type { CollectionBook } from '../types'
 import { Button, Input, Modal, Badge, Spinner, EmptyState } from '../components'
 
@@ -9,14 +9,14 @@ import { Button, Input, Modal, Badge, Spinner, EmptyState } from '../components'
 
 interface BookCardProps {
     item: CollectionBook
-    onRemove: (bookId: string) => void
+    onRemove: (copyId: string) => void
     isRemoving: boolean
 }
 
 function BookCard({ item, onRemove, isRemoving }: BookCardProps) {
     const [confirming, setConfirming] = useState(false)
-    const coverUrl = item.book.editions?.find(e => e.cover_url)?.cover_url
-    const authorNames = item.book.authors?.map(a => a.name).join(', ') ?? ''
+    const authorNames = item.authors.join(', ')
+    const copyId = item.book_copy_id
 
     return (
         <div
@@ -43,10 +43,10 @@ function BookCard({ item, onRemove, isRemoving }: BookCardProps) {
                     flexShrink: 0,
                 }}
             >
-                {coverUrl ? (
+                {item.cover_url ? (
                     <img
-                        src={coverUrl}
-                        alt={item.book.title}
+                        src={item.cover_url}
+                        alt={item.title}
                         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     />
                 ) : (
@@ -68,7 +68,7 @@ function BookCard({ item, onRemove, isRemoving }: BookCardProps) {
                         whiteSpace: 'nowrap',
                     }}
                 >
-                    {item.book.title}
+                    {item.title}
                 </p>
                 {authorNames && (
                     <p
@@ -87,13 +87,13 @@ function BookCard({ item, onRemove, isRemoving }: BookCardProps) {
                 )}
 
                 {/* Remove button */}
-                <div style={{ marginTop: 'auto', paddingTop: '8px' }}>
+                {copyId && <div style={{ marginTop: 'auto', paddingTop: '8px' }}>
                     {confirming ? (
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                             <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Remove?</span>
                             <button
                                 disabled={isRemoving}
-                                onClick={() => { onRemove(item.book_id); setConfirming(false) }}
+                                onClick={() => { onRemove(copyId); setConfirming(false) }}
                                 style={{
                                     padding: '2px 8px',
                                     fontSize: '11px',
@@ -141,7 +141,7 @@ function BookCard({ item, onRemove, isRemoving }: BookCardProps) {
                             🗑️
                         </button>
                     )}
-                </div>
+                </div>}
             </div>
         </div>
     )
@@ -150,7 +150,7 @@ function BookCard({ item, onRemove, isRemoving }: BookCardProps) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function CollectionDetailPage() {
-    const { id } = useParams<{ id: string }>()
+    const { libraryId, collectionId } = useParams<{ libraryId: string; collectionId: string }>()
     const navigate = useNavigate()
     const queryClient = useQueryClient()
 
@@ -160,40 +160,58 @@ export default function CollectionDetailPage() {
     const [editDescription, setEditDescription] = useState('')
     const [editVisibility, setEditVisibility] = useState<'public' | 'private'>('public')
 
-    const { data, isLoading, isError } = useQuery({
-        queryKey: ['collection', id],
-        queryFn: () => getCollection(id!),
-        enabled: !!id,
+    const { data: collection, isLoading: collectionLoading, isError: collectionError } = useQuery({
+        queryKey: ['collection', libraryId, collectionId],
+        queryFn: () => getCollection(libraryId!, collectionId!),
+        enabled: !!libraryId && !!collectionId,
     })
+
+    const { data: booksData, isLoading: booksLoading, isError: booksError } = useQuery({
+        queryKey: ['collection-books', libraryId, collectionId, { page: 1, limit: 100 }],
+        queryFn: () => getCollectionBooks(libraryId!, collectionId!, 1, 100),
+        enabled: !!libraryId && !!collectionId,
+    })
+
+    const isLoading = collectionLoading || booksLoading
+    const isError = collectionError || booksError
+    const books = booksData?.books ?? []
 
     const updateMutation = useMutation({
         mutationFn: () =>
-            updateCollection(id!, {
+            updateCollection(libraryId!, collectionId!, {
                 name: editName,
                 description: editDescription || undefined,
-                visibility: editVisibility,
+                is_public: editVisibility === 'public',
             }),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['collection', id] })
+            queryClient.invalidateQueries({ queryKey: ['collection', libraryId, collectionId] })
+            queryClient.invalidateQueries({ queryKey: ['collections', libraryId] })
             setShowEditModal(false)
         },
     })
 
     const deleteMutation = useMutation({
-        mutationFn: () => deleteCollection(id!),
-        onSuccess: () => navigate(-1),
+        mutationFn: () => deleteCollection(libraryId!, collectionId!),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['collections', libraryId] })
+            navigate(`/libraries/${libraryId}`)
+        },
     })
 
     const removeMutation = useMutation({
-        mutationFn: (bookId: string) => removeBookFromCollection(id!, bookId),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['collection', id] }),
+        mutationFn: (copyId: string) => removeBookFromCollection(libraryId!, collectionId!, copyId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['collection-books', libraryId, collectionId] })
+            queryClient.invalidateQueries({ queryKey: ['collection', libraryId, collectionId] })
+            queryClient.invalidateQueries({ queryKey: ['collections', libraryId] })
+        },
     })
 
     function openEditModal() {
-        if (!data) return
-        setEditName(data.collection.name)
-        setEditDescription(data.collection.description ?? '')
-        setEditVisibility(data.collection.visibility)
+        if (!collection) return
+        setEditName(collection.name)
+        setEditDescription(collection.description ?? '')
+        setEditVisibility(collection.is_public ? 'public' : 'private')
         setShowEditModal(true)
     }
 
@@ -234,7 +252,7 @@ export default function CollectionDetailPage() {
 
             {isError && <EmptyState icon="⚠️" title="Failed to load collection" />}
 
-            {!isLoading && !isError && data && (
+            {!isLoading && !isError && collection && (
                 <>
                     {/* Header */}
                     <div
@@ -258,15 +276,15 @@ export default function CollectionDetailPage() {
                                         color: 'var(--color-text)',
                                     }}
                                 >
-                                    {data.collection.name}
+                                    {collection.name}
                                 </h1>
                                 <Badge
-                                    label={data.collection.visibility === 'public' ? 'Public' : 'Private'}
-                                    variant={data.collection.visibility === 'public' ? 'success' : 'muted'}
+                                    label={collection.is_public ? 'Public' : 'Private'}
+                                    variant={collection.is_public ? 'success' : 'muted'}
                                     size="sm"
                                 />
                             </div>
-                            {data.collection.description && (
+                            {collection.description && (
                                 <p
                                     style={{
                                         margin: 0,
@@ -275,7 +293,7 @@ export default function CollectionDetailPage() {
                                         fontFamily: 'var(--font-body)',
                                     }}
                                 >
-                                    {data.collection.description}
+                                    {collection.description}
                                 </p>
                             )}
                         </div>
@@ -286,7 +304,7 @@ export default function CollectionDetailPage() {
                     </div>
 
                     {/* Book grid */}
-                    {data.books.length === 0 ? (
+                    {books.length === 0 ? (
                         <EmptyState
                             icon="📚"
                             title="This collection is empty"
@@ -300,9 +318,9 @@ export default function CollectionDetailPage() {
                                 gap: '16px',
                             }}
                         >
-                            {data.books.map((item: CollectionBook) => (
+                            {books.map((item: CollectionBook) => (
                                 <BookCard
-                                    key={item.book_id}
+                                    key={item.book_copy_id ?? `${item.book_id}-${item.edition_id}`}
                                     item={item}
                                     onRemove={bookId => removeMutation.mutate(bookId)}
                                     isRemoving={removeMutation.isPending}
@@ -376,7 +394,7 @@ export default function CollectionDetailPage() {
                 size="sm"
             >
                 <p style={{ margin: 0, color: 'var(--color-text)', fontSize: '14px' }}>
-                    Are you sure you want to delete <strong>{data?.collection.name}</strong>? This cannot be undone.
+                    Are you sure you want to delete <strong>{collection?.name}</strong>? This cannot be undone.
                 </p>
             </Modal>
         </div>
