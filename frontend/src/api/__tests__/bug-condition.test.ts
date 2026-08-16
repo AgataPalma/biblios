@@ -620,9 +620,63 @@ describe('Bug 7 — Library response shapes and invitation routes', () => {
         // On fixed code: result is Library[] directly.
         expect(Array.isArray(result)).toBe(true)
 
-        const libraries = result as unknown as Array<Record<string, unknown>>
+        const libraries = result
         expect(libraries[0].name).toBe('My Library')
         expect(libraries[0].id).toBe('1')
+    })
+
+    it('should parse library detail as a plain library object', async () => {
+        const library = {
+            id: 'lib1',
+            owner_id: 'u1',
+            name: 'My Library',
+            visibility: 'private',
+            is_cooperative: true,
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+        }
+        mock.onGet('/libraries/lib1').reply(200, library)
+
+        const { getLibrary } = await import('../libraries')
+        const result = await getLibrary('lib1')
+
+        expect(result).toEqual(library)
+        expect('library' in result).toBe(false)
+        expect('members' in result).toBe(false)
+    })
+
+    it('should fetch library members from the separate members endpoint', async () => {
+        const members = [{
+            library_id: 'lib1',
+            user_id: 'u1',
+            username: 'owner',
+            joined_at: '2024-01-01T00:00:00Z',
+            is_owner: true,
+            can_view: true,
+            can_add: true,
+            can_remove: true,
+            can_edit: true,
+            can_invite: true,
+            can_manage_members: true,
+        }]
+        mock.onGet('/libraries/lib1/members').reply(200, members)
+
+        const { getLibraryMembers } = await import('../libraries')
+        await expect(getLibraryMembers('lib1')).resolves.toEqual(members)
+    })
+
+    it('should update member permissions without expecting a member response', async () => {
+        let capturedBody: Record<string, unknown> | null = null
+        mock.onPut('/libraries/lib1/members/u2').reply((config) => {
+            capturedBody = JSON.parse(config.data as string)
+            return [200, { message: 'permissions updated' }]
+        })
+
+        const { updateMember } = await import('../libraries')
+        const result = await updateMember('lib1', 'u2', { can_add: true, can_remove: false })
+
+        expect(result).toBeUndefined()
+        expect(capturedBody).toEqual({ can_add: true, can_remove: false })
     })
 
     it('should call POST /invitations/tok/accept (not PUT /libraries/invitations/tok/accept)', async () => {

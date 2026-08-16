@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getLibraries, createLibrary } from '../api/libraries'
-import type { CooperativeLibrary } from '../types'
+import type { Library } from '../types'
 import { Button, Input, Modal, Card, Badge, Spinner, EmptyState } from '../components'
 
 export default function LibrariesPage() {
@@ -22,12 +22,17 @@ export default function LibrariesPage() {
         queryFn: getLibraries,
     })
 
-    const libraries = data?.libraries ?? []
+    const libraries = data ?? []
 
     // ── Create mutation ───────────────────────────────────────────────────────
     const createMutation = useMutation({
         mutationFn: () =>
-            createLibrary({ name, description, visibility, is_cooperative: isCooperative }),
+            createLibrary({
+                name,
+                description: description || undefined,
+                visibility,
+                is_cooperative: isCooperative,
+            }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['libraries'] })
             setShowNewModal(false)
@@ -47,7 +52,7 @@ export default function LibrariesPage() {
         resetForm()
     }
 
-    function visibilityBadge(lib: CooperativeLibrary) {
+    function visibilityBadge(lib: Library) {
         if (lib.visibility === 'public') return <Badge variant="success" label="Public" />
         if (lib.visibility === 'semi_public') return <Badge variant="warning" label="Semi-Public" />
         return <Badge variant="default" label="Private" />
@@ -164,7 +169,6 @@ export default function LibrariesPage() {
                                     }}
                                 >
                                     <span>👥 {lib.member_count ?? 0} members</span>
-                                    <span>📚 {lib.book_count ?? 0} books</span>
                                 </div>
                             </div>
                         </Card>
