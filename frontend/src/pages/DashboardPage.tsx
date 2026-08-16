@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
 import { Spinner, EmptyState } from '../components'
 import { getMyLibrary, listBooks } from '../api/books'
-import { getChallenges } from '../api/reading'
+import { getChallenges, getChallengeProgress } from '../api/reading'
 import { getNotifications } from '../api/notifications'
 import type { UserBook } from '../types'
 
@@ -117,13 +117,20 @@ export default function DashboardPage() {
         queryFn: () => getNotifications(1, 3, { read: false }),
     })
 
+    const now = new Date()
+    const thisYear = now.getFullYear()
+    const thisMonth = now.getMonth()
+    const dashboardChallenges = (challengesData ?? []).filter(challenge => challenge.year === thisYear).slice(0, 3)
+    const challengeProgressQueries = useQueries({
+        queries: dashboardChallenges.map(challenge => ({
+            queryKey: ['reading-challenge-progress', challenge.id],
+            queryFn: () => getChallengeProgress(challenge.id),
+        })),
+    })
+
     const allBooks: UserBook[] = libraryData?.books ?? []
     const inProgress  = allBooks.filter(b => b.reading_status === 'reading')
     const recentBooks = allBooks.slice(0, 5)
-
-    const now = new Date()
-    const thisYear  = now.getFullYear()
-    const thisMonth = now.getMonth()
 
     const stats = {
         reading:     allBooks.filter(b => b.reading_status === 'reading').length,
@@ -140,7 +147,9 @@ export default function DashboardPage() {
         }).length,
     }
 
-    const activeChallenges = (challengesData?.challenges ?? []).filter(c => c.status === 'active').slice(0, 3)
+    const activeChallenges = dashboardChallenges
+        .map((challenge, index) => ({ challenge, progress: challengeProgressQueries[index]?.data }))
+        .filter(({ progress }) => (progress?.progress_pct ?? 0) < 100)
     const unreadNotifs = (notifData?.notifications ?? []).filter(n => n.read_at === null).slice(0, 3)
 
     const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -578,15 +587,13 @@ export default function DashboardPage() {
                         </button>
                     </div>
                     <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {activeChallenges.map(challenge => {
-                            const pct = challenge.goal_books > 0
-                                ? Math.min(100, Math.round((challenge.current_books / challenge.goal_books) * 100))
-                                : 0
+                        {activeChallenges.map(({ challenge, progress }) => {
+                            const pct = Math.min(100, Math.round(progress?.progress_pct ?? 0))
                             return (
                                 <div key={challenge.id}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>{challenge.title}</span>
-                                        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>{challenge.current_books} / {challenge.goal_books} books ({pct}%)</span>
+                                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-body)' }}>{challenge.year} Reading Challenge</span>
+                                        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>{progress?.books_read ?? 0} / {challenge.goal} books ({pct}%)</span>
                                     </div>
                                     <div style={{ height: '6px', background: 'var(--color-surface-alt)', borderRadius: '3px', overflow: 'hidden' }}>
                                         <div style={{ height: '100%', width: `${pct}%`, background: pct === 100 ? 'var(--color-success)' : 'var(--color-primary)', borderRadius: '3px', transition: 'width 0.3s ease' }} />

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getChallenges, createChallenge, getSessions, createSession } from '../api/reading'
+import { getChallenges, createChallenge, getChallengeProgress, getSessions, createSession } from '../api/reading'
 import type { ReadingChallenge, ReadingSession } from '../types'
 import { Button, Input, Modal, Card, Badge, Spinner, EmptyState } from '../components'
 
@@ -17,16 +17,63 @@ function ProgressBar({ value, max }: { value: number; max: number }) {
 // ── Tab type ──────────────────────────────────────────────────────────────────
 type Tab = 'challenges' | 'sessions'
 
+function ChallengeCard({ challenge }: { challenge: ReadingChallenge }) {
+    const { data: progress, isLoading } = useQuery({
+        queryKey: ['reading-challenge-progress', challenge.id],
+        queryFn: () => getChallengeProgress(challenge.id),
+    })
+
+    const pct = Math.min(100, Math.round(progress?.progress_pct ?? 0))
+    const currentYear = new Date().getFullYear()
+    const badge = pct >= 100
+        ? { label: '✅ completed', variant: 'success' as const }
+        : challenge.year === currentYear
+            ? { label: 'active', variant: 'info' as const }
+            : challenge.year > currentYear
+                ? { label: 'upcoming', variant: 'warning' as const }
+                : { label: 'ended', variant: 'muted' as const }
+
+    return (
+        <Card>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                    <span
+                        style={{
+                            fontSize: '16px',
+                            fontWeight: 700,
+                            color: 'var(--color-text)',
+                            fontFamily: 'var(--font-heading)',
+                        }}
+                    >
+                        {challenge.year} Reading Challenge
+                    </span>
+                    <Badge label={badge.label} variant={badge.variant} />
+                </div>
+
+                <span style={{ fontSize: '13px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
+                    Annual goal · {challenge.goal} books
+                </span>
+
+                <ProgressBar value={progress?.books_read ?? 0} max={challenge.goal} />
+
+                <span style={{ fontSize: '13px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
+                    {isLoading
+                        ? 'Loading progress…'
+                        : `${progress?.books_read ?? 0} / ${challenge.goal} books (${pct}%)`}
+                </span>
+            </div>
+        </Card>
+    )
+}
+
 // ── Challenges tab ────────────────────────────────────────────────────────────
 function ChallengesTab() {
     const queryClient = useQueryClient()
     const [showModal, setShowModal] = useState(false)
 
     // Form state
-    const [title, setTitle] = useState('')
-    const [startDate, setStartDate] = useState('')
-    const [endDate, setEndDate] = useState('')
-    const [goalBooks, setGoalBooks] = useState('')
+    const [year, setYear] = useState(String(new Date().getFullYear()))
+    const [goal, setGoal] = useState('')
 
     const { data, isLoading, isError } = useQuery({
         queryKey: ['reading-challenges'],
@@ -36,10 +83,8 @@ function ChallengesTab() {
     const createMutation = useMutation({
         mutationFn: () =>
             createChallenge({
-                title,
-                start_date: startDate,
-                end_date: endDate,
-                goal_books: Number(goalBooks),
+                year: Number(year),
+                goal: Number(goal),
             }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['reading-challenges'] })
@@ -49,23 +94,11 @@ function ChallengesTab() {
 
     function closeModal() {
         setShowModal(false)
-        setTitle('')
-        setStartDate('')
-        setEndDate('')
-        setGoalBooks('')
+        setYear(String(new Date().getFullYear()))
+        setGoal('')
     }
 
-    function statusBadge(challenge: ReadingChallenge) {
-        if (challenge.status === 'completed') {
-            return <Badge label="✅ completed" variant="success" />
-        }
-        if (challenge.status === 'failed') {
-            return <Badge label="failed" variant="error" />
-        }
-        return <Badge label="active" variant="info" />
-    }
-
-    const challenges = data?.challenges ?? []
+    const challenges = data ?? []
 
     return (
         <>
@@ -87,46 +120,9 @@ function ChallengesTab() {
             {/* Challenge cards */}
             {!isLoading && !isError && challenges.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {challenges.map((challenge) => {
-                        const pct =
-                            challenge.goal_books > 0
-                                ? Math.min(100, Math.round((challenge.current_books / challenge.goal_books) * 100))
-                                : 0
-                        return (
-                            <Card key={challenge.id}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                    {/* Title + badge row */}
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                                        <span
-                                            style={{
-                                                fontSize: '16px',
-                                                fontWeight: 700,
-                                                color: 'var(--color-text)',
-                                                fontFamily: 'var(--font-heading)',
-                                            }}
-                                        >
-                                            {challenge.title}
-                                        </span>
-                                        {statusBadge(challenge)}
-                                    </div>
-
-                                    {/* Date range */}
-                                    <span style={{ fontSize: '13px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
-                                        {new Date(challenge.start_date).toLocaleDateString()} –{' '}
-                                        {new Date(challenge.end_date).toLocaleDateString()}
-                                    </span>
-
-                                    {/* Progress bar */}
-                                    <ProgressBar value={challenge.current_books} max={challenge.goal_books} />
-
-                                    {/* Progress text */}
-                                    <span style={{ fontSize: '13px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
-                                        {challenge.current_books} / {challenge.goal_books} books ({pct}%)
-                                    </span>
-                                </div>
-                            </Card>
-                        )
-                    })}
+                    {challenges.map((challenge) => (
+                        <ChallengeCard key={challenge.id} challenge={challenge} />
+                    ))}
                 </div>
             )}
 
@@ -153,28 +149,17 @@ function ChallengesTab() {
             >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <Input
-                        label="Title"
-                        value={title}
-                        onChange={setTitle}
-                        placeholder="e.g. 2026 Reading Challenge"
-                    />
-                    <Input
-                        label="Start date"
-                        type="date"
-                        value={startDate}
-                        onChange={setStartDate}
-                    />
-                    <Input
-                        label="End date"
-                        type="date"
-                        value={endDate}
-                        onChange={setEndDate}
+                        label="Year"
+                        type="number"
+                        value={year}
+                        onChange={setYear}
+                        placeholder="e.g. 2026"
                     />
                     <Input
                         label="Goal (books)"
                         type="number"
-                        value={goalBooks}
-                        onChange={setGoalBooks}
+                        value={goal}
+                        onChange={setGoal}
                         placeholder="e.g. 20"
                     />
                 </div>
@@ -190,12 +175,12 @@ function SessionsTab() {
 
     // Form state
     const [copyId, setCopyId] = useState('')
-    const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+    const [loggedDate, setLoggedDate] = useState(new Date().toISOString().slice(0, 10))
     const [pagesRead, setPagesRead] = useState('')
-    const [notes, setNotes] = useState('')
+    const [note, setNote] = useState('')
 
     const { data, isLoading, isError } = useQuery({
-        queryKey: ['reading-sessions'],
+        queryKey: ['reading-sessions', { page: 1, limit: 50 }],
         queryFn: () => getSessions(1, 50),
     })
 
@@ -203,9 +188,9 @@ function SessionsTab() {
         mutationFn: () =>
             createSession({
                 copy_id: copyId,
-                date,
-                pages_read: Number(pagesRead),
-                notes: notes || undefined,
+                logged_date: loggedDate,
+                pages_read: pagesRead ? Number(pagesRead) : undefined,
+                note: note || undefined,
             }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['reading-sessions'] })
@@ -216,9 +201,9 @@ function SessionsTab() {
     function closeModal() {
         setShowModal(false)
         setCopyId('')
-        setDate(new Date().toISOString().slice(0, 10))
+        setLoggedDate(new Date().toISOString().slice(0, 10))
         setPagesRead('')
-        setNotes('')
+        setNote('')
     }
 
     const sessions = data?.sessions ?? []
@@ -271,20 +256,20 @@ function SessionsTab() {
                                         fontFamily: 'var(--font-heading)',
                                     }}
                                 >
-                                    {session.book_title ?? 'Unknown book'}
+                                    Copy {session.copy_id}
                                 </span>
                                 <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', fontFamily: 'var(--font-body)' }}>
-                                    {new Date(session.date).toLocaleDateString()}
+                                    {new Date(`${session.logged_date}T00:00:00`).toLocaleDateString()}
                                 </span>
                             </div>
 
                             {/* Pages read */}
                             <span style={{ fontSize: '13px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)' }}>
-                                📄 {session.pages_read} pages
+                                {session.pages_read == null ? 'Pages not recorded' : `📄 ${session.pages_read} pages`}
                             </span>
 
                             {/* Notes (truncated) */}
-                            {session.notes && (
+                            {session.note && (
                                 <span
                                     style={{
                                         fontSize: '12px',
@@ -296,7 +281,7 @@ function SessionsTab() {
                                         maxWidth: '600px',
                                     }}
                                 >
-                                    {session.notes}
+                                    {session.note}
                                 </span>
                             )}
                         </div>
@@ -335,8 +320,8 @@ function SessionsTab() {
                     <Input
                         label="Date"
                         type="date"
-                        value={date}
-                        onChange={setDate}
+                        value={loggedDate}
+                        onChange={setLoggedDate}
                     />
                     <Input
                         label="Pages read"
@@ -358,8 +343,8 @@ function SessionsTab() {
                             Notes
                         </label>
                         <textarea
-                            value={notes}
-                            onChange={(e) => setNotes(e.target.value)}
+                            value={note}
+                            onChange={(e) => setNote(e.target.value)}
                             placeholder="Optional notes about this session…"
                             rows={3}
                             style={{
