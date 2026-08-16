@@ -1,14 +1,8 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { themes } from '../themes/themes'
 import type { ThemeId } from '../themes/themes'
-
-interface ThemeContextType {
-    themeId: ThemeId
-    setTheme: (id: ThemeId) => void
-}
-
-const ThemeContext = createContext<ThemeContextType | null>(null)
+import { ThemeContext } from './theme-context'
 
 function applyTheme(id: ThemeId): void {
     const theme = themes[id]
@@ -75,10 +69,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             {children}
         </ThemeContext.Provider>
     )
-}
-
-export function useTheme(): ThemeContextType {
-    const context = useContext(ThemeContext)
-    if (!context) throw new Error('useTheme must be used within ThemeProvider')
-    return context
 }

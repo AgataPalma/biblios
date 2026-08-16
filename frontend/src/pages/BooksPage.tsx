@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listBooks, addToWishlist, addCopy } from '../api/books'
 import { Card, Badge, Spinner, EmptyState, Modal } from '../components'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth-context'
 import type { Book, Edition } from '../types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────

@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme } from '../context/theme-context'
 import { themes } from '../themes/themes'
 import type { ThemeId } from '../themes/themes'
 import { useMutation } from '@tanstack/react-query'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth-context'
 import apiClient from '../api/client'
 
 export default function ThemeSwitcher() {

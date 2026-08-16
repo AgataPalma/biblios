@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme } from '../context/theme-context'
 import type { ThemeId } from '../themes/themes'
 
 // ─── Theme configurations ────────────────────────────────────────────────────

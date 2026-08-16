@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { register } from '../api/auth'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth-context'
 import { Input, Button } from '../components'
 import type { AuthResponse } from '../types'
 

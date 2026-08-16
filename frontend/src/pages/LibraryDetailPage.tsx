@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getLibrary, getLibraryMembers, inviteMember, removeMember } from '../api/libraries'
 import { getCollections, createCollection } from '../api/collections'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth-context'
 import type { LibraryMember, Collection } from '../types'
 import { Button, Input, Modal, Badge, Spinner, EmptyState, Card } from '../components'
 
