@@ -26,6 +26,7 @@ frontend/.vite/
 frontend/.env.local
 frontend/.env.*.local
 frontend/coverage/
+postman-cli-reports/
 
 # ─── Backend ──────────────────────────────────────────
 backend/tmp/
