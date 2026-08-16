@@ -291,19 +291,19 @@ export interface Series {
     id: string
     name: string
     description?: string
-    status: 'pending' | 'approved'
+    status: 'pending' | 'approved' | 'rejected'
+    rejection_reason?: string
+    deleted_at?: string
     created_at: string
     updated_at: string
-    book_count?: number
 }
 
 export interface SeriesBook {
     book_id: string
-    series_id?: string
     title: string
     authors: string[]
-    cover_url: string | null
-    series_position: number | null
+    cover_url?: string | null
+    series_position?: number | null
 }
 
 export interface SeriesResponse {
@@ -313,14 +313,7 @@ export interface SeriesResponse {
     limit: number
 }
 
-export interface SeriesDetailResponse {
-    id: string
-    name: string
-    description?: string
-    status: 'pending' | 'approved'
-    created_at: string
-    updated_at: string
-    book_count?: number
+export interface SeriesDetailResponse extends Series {
     books: SeriesBook[]
 }
 

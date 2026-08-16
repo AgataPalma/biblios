@@ -131,16 +131,6 @@ export default function SeriesPage() {
                                     {series.description}
                                 </p>
                             )}
-                            <p
-                                style={{
-                                    margin: 0,
-                                    fontSize: '12px',
-                                    color: 'var(--color-text-muted)',
-                                    fontFamily: 'var(--font-body)',
-                                }}
-                            >
-                                📚 {series.book_count ?? 0} books
-                            </p>
                         </Card>
                     ))}
                 </div>

@@ -739,6 +739,7 @@ describe('Bug 8 — Series detail shape', () => {
             updated_at: '2024-01-01T00:00:00Z',
             books: [
                 {
+                    book_id: 'book1',
                     title: 'Dune',
                     series_position: 1,
                     authors: ['Frank Herbert'],
@@ -750,7 +751,7 @@ describe('Bug 8 — Series detail shape', () => {
         mock.onGet('/series/1').reply(200, backendSeriesDetail)
 
         const { getSeriesById } = await import('../series')
-        const data = await getSeriesById('1') as Record<string, unknown>
+        const data = await getSeriesById('1')
 
         // On unfixed code: data.series.name is accessed (nested), but backend returns fields inline.
         // data.series would be undefined, causing a crash.
@@ -759,18 +760,18 @@ describe('Bug 8 — Series detail shape', () => {
         expect(data.description).toBe('A sci-fi epic')
 
         // On unfixed code: data.series is undefined — this assertion fails.
-        expect((data as Record<string, unknown>).series).toBeUndefined()
+        expect('series' in data).toBe(false)
 
         // Books should be a flat array with flat fields
-        const books = data.books as Array<Record<string, unknown>>
+        const books = data.books
         expect(Array.isArray(books)).toBe(true)
         expect(books[0].title).toBe('Dune')
         expect(books[0].series_position).toBe(1)
         expect(books[0].authors).toEqual(['Frank Herbert'])
 
         // On unfixed code: books[0].book.title is accessed (nested), but backend has flat fields.
-        expect(books[0].book).toBeUndefined()
-        expect(books[0].position).toBeUndefined()  // backend uses series_position, not position
+        expect('book' in books[0]).toBe(false)
+        expect('position' in books[0]).toBe(false)  // backend uses series_position, not position
     })
 })
 
