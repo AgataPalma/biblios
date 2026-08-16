@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { getMyLibrary, updateReadingStatus, removeCopy } from '../api/books'
 import { getShelves, addBookToShelf } from '../api/shelves'
 import { Card, Badge, Spinner, EmptyState, Modal } from '../components'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme } from '../context/theme-context'
 import type { UserBook } from '../types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────

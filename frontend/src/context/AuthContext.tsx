@@ -1,20 +1,10 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { User } from '../types'
 import { getMe } from '../api/auth'
-import { useTheme } from './ThemeContext'
+import { AuthContext } from './auth-context'
+import { useTheme } from './theme-context'
 import type { ThemeId } from '../themes/themes'
-
-interface AuthContextType {
-    user: User | null
-    token: string | null
-    isLoading: boolean
-    setAuth: (token: string, user: User) => void
-    clearAuth: () => void
-    isAuthenticated: boolean
-}
-
-const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null)
@@ -78,10 +68,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             {children}
         </AuthContext.Provider>
     )
-}
-
-export function useAuth(): AuthContextType {
-    const context = useContext(AuthContext)
-    if (!context) throw new Error('useAuth must be used within AuthProvider')
-    return context
 }

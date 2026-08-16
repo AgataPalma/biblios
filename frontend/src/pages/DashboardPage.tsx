@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth-context'
 import { Spinner, EmptyState } from '../components'
 import { getMyLibrary, listBooks } from '../api/books'
 import { getChallenges, getChallengeProgress } from '../api/reading'

@@ -5,7 +5,7 @@ import apiClient from '../api/client'
 import { Card, Badge, Spinner } from '../components'
 import type { LookupResultsPage, LookupFilters } from '../types'
 import { lookupByISBN, lookupByTitleAuthor, checkDuplicate, submitBook as submitBookApi } from '../api/books'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth-context'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

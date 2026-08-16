@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from './context/AuthContext'
+import { useAuth } from './context/auth-context'
 import { Spinner } from './components'
 import Sidebar from './components/Sidebar'
 import LoginPage from './pages/LoginPage'

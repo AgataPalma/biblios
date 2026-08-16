@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getBook, addCopy, updateBook, uploadEditionCover, updateReadingStatus, removeCopy, deleteBook, deleteEdition, getBookReviews, submitReview, updateMyReview, type UpdateReadingStatusPayload } from '../api/books'
 import { Badge, Card, Modal, Spinner } from '../components'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth-context'
 import type { Book, Edition, UserBook, Review } from '../types'
 
 const PALETTE = ['#2563eb','#16a34a','#dc2626','#9333ea','#ea580c','#0891b2','#d97706','#4f46e5','#0d9488','#be185d']
