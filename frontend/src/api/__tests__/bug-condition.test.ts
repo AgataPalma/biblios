@@ -525,6 +525,7 @@ describe('Bug 6 — Shelf detail route', () => {
 
         mock.onGet('/shelves/shelf1/books').reply((config) => {
             correctRequests.push(config.url ?? '')
+            expect(config.params).toEqual({ page: 1, limit: 20 })
             return [200, {
                 books: [],
                 total: 0,
@@ -539,11 +540,26 @@ describe('Bug 6 — Shelf detail route', () => {
         })
 
         const { getShelf } = await import('../shelves')
-        await getShelf('shelf1')
+        const result = await getShelf('shelf1')
 
         // On unfixed code: wrongRequests.length === 1, correctRequests.length === 0 — fails.
         expect(correctRequests.length).toBe(1)
         expect(wrongRequests.length).toBe(0)
+        expect(result.books).toEqual([])
+        expect('shelf' in result).toBe(false)
+    })
+
+    it('should forward shelf-book pagination parameters', async () => {
+        mock.onGet('/shelves/shelf1/books').reply((config) => {
+            expect(config.params).toEqual({ page: 3, limit: 40 })
+            return [200, { books: [], total: 0, page: 3, limit: 40 }]
+        })
+
+        const { getShelf } = await import('../shelves')
+        const result = await getShelf('shelf1', 3, 40)
+
+        expect(result.page).toBe(3)
+        expect(result.limit).toBe(40)
     })
 
     it('should call DELETE /shelves/s1/books/c1 with no body (not DELETE /shelves/s1/books with body)', async () => {

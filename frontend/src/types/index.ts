@@ -212,25 +212,14 @@ export interface Shelf {
     user_id: string
     name: string
     created_at: string
-    updated_at: string
     book_count?: number
 }
 
-export interface ShelfBook {
-    copy_id: string
-    shelf_id: string
-    added_at: string
-    book: Book
-    edition_id: string
-    format: string
-    cover_url?: string
-    reading_status: string
-}
-
-export interface ShelfDetailResponse {
-    shelf: Shelf
-    books: ShelfBook[]
+export interface ShelfBooksResponse {
+    books: UserBook[]
     total: number
+    page: number
+    limit: number
 }
 
 // ── Collection ────────────────────────────────────────────────────────────────

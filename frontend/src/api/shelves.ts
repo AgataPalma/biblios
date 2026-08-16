@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { Shelf, ShelfDetailResponse } from '../types'
+import type { Shelf, ShelfBooksResponse } from '../types'
 
 export interface CreateShelfPayload {
     name: string
@@ -14,8 +14,10 @@ export async function getShelves(): Promise<Shelf[]> {
     return res.data
 }
 
-export async function getShelf(id: string): Promise<ShelfDetailResponse> {
-    const res = await apiClient.get<ShelfDetailResponse>(`/shelves/${id}`)
+export async function getShelf(id: string, page = 1, limit = 20): Promise<ShelfBooksResponse> {
+    const res = await apiClient.get<ShelfBooksResponse>(`/shelves/${id}/books`, {
+        params: { page, limit },
+    })
     return res.data
 }
 
@@ -38,5 +40,5 @@ export async function addBookToShelf(shelfId: string, copyId: string): Promise<v
 }
 
 export async function removeBookFromShelf(shelfId: string, copyId: string): Promise<void> {
-    await apiClient.delete(`/shelves/${shelfId}/books`, { data: { copy_id: copyId } })
+    await apiClient.delete(`/shelves/${shelfId}/books/${copyId}`)
 }
