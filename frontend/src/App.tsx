@@ -124,7 +124,7 @@ export default function App() {
             <Route path="/lists/:id" element={
                 <ProtectedRoute><BookListDetailPage /></ProtectedRoute>
             } />
-            <Route path="/collections/:id" element={
+            <Route path="/libraries/:libraryId/collections/:collectionId" element={
                 <ProtectedRoute><CollectionDetailPage /></ProtectedRoute>
             } />
             <Route path="*" element={<NotFoundPage />} />

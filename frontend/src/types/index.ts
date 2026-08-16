@@ -239,35 +239,33 @@ export interface Collection {
     library_id: string
     name: string
     description?: string
+    cover_colour?: string
     is_public: boolean
     is_collaborative: boolean
-    created_by: string
+    created_by?: string
     created_at: string
     updated_at: string
     book_count?: number
 }
 
 export interface CollectionBook {
-    book_copy_id: string
     collection_id: string
-    added_by: string
-    added_at: string
+    book_copy_id?: string
+    book_id: string
+    edition_id: string
     title: string
     authors: string[]
-    cover_url: string | null
+    format: string
+    language?: string
+    cover_url?: string
+    added_at: string
 }
 
-export interface CollectionDetailResponse {
-    id: string
-    library_id: string
-    name: string
-    description?: string
-    is_public: boolean
-    is_collaborative: boolean
-    created_by: string
-    created_at: string
-    updated_at: string
-    book_count?: number
+export interface CollectionBooksResponse {
+    books: CollectionBook[]
+    total: number
+    page: number
+    limit: number
 }
 
 // ── Cooperative Library ───────────────────────────────────────────────────────

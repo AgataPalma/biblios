@@ -248,7 +248,7 @@ describe('Collection CRUD preservation (already-correct calls)', () => {
 
         mock.onPost('/libraries/lib1/collections').reply((config) => {
             capturedRequests.push({ method: 'post', url: config.url ?? '' })
-            return [201, { id: 'col1', library_id: 'lib1', name: 'My Collection', visibility: 'public', is_collaborative: false, created_by: 'u1', created_at: '', updated_at: '' }]
+            return [201, { id: 'col1', library_id: 'lib1', name: 'My Collection', is_public: true, is_collaborative: false, created_by: 'u1', created_at: '', updated_at: '' }]
         })
 
         const { createCollection } = await import('../collections')
@@ -264,7 +264,7 @@ describe('Collection CRUD preservation (already-correct calls)', () => {
 
         mock.onGet('/libraries/lib1/collections').reply((config) => {
             capturedRequests.push({ method: 'get', url: config.url ?? '' })
-            return [200, { collections: [], total: 0 }]
+            return [200, []]
         })
 
         const { getCollections } = await import('../collections')

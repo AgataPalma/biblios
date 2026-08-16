@@ -163,7 +163,7 @@ function CollectionsTab({ collections, libraryId, onNewCollection }: Collections
                         <Card
                             key={col.id}
                             hover
-                            onClick={() => navigate(`/collections/${col.id}`)}
+                            onClick={() => navigate(`/libraries/${libraryId}/collections/${col.id}`)}
                             padding="md"
                         >
                             <div
@@ -195,8 +195,8 @@ function CollectionsTab({ collections, libraryId, onNewCollection }: Collections
                                     {col.book_count ?? 0} book{col.book_count !== 1 ? 's' : ''}
                                 </p>
                                 <Badge
-                                    label={col.visibility}
-                                    variant={col.visibility === 'public' ? 'success' : 'muted'}
+                                    label={col.is_public ? 'Public' : 'Private'}
+                                    variant={col.is_public ? 'success' : 'muted'}
                                     size="sm"
                                 />
                             </div>
@@ -304,7 +304,11 @@ function NewCollectionModal({ isOpen, onClose, libraryId }: NewCollectionModalPr
     const [errorMsg, setErrorMsg] = useState('')
 
     const mutation = useMutation({
-        mutationFn: () => createCollection(libraryId, { name, description, visibility }),
+        mutationFn: () => createCollection(libraryId, {
+            name,
+            description: description || undefined,
+            is_public: visibility === 'public',
+        }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['collections', libraryId] })
             handleClose()
@@ -469,7 +473,7 @@ export default function LibraryDetailPage() {
     }
 
     const { library, members } = data
-    const collections = collectionsData?.collections ?? []
+    const collections = collectionsData ?? []
 
     return (
         <div
