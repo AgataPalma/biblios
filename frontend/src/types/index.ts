@@ -258,9 +258,9 @@ export interface CollectionBooksResponse {
 }
 
 // ── Cooperative Library ───────────────────────────────────────────────────────
-export interface CooperativeLibrary {
+export interface Library {
     id: string
-    owner_id: string
+    owner_id?: string
     name: string
     description?: string
     visibility: 'private' | 'semi_public' | 'public'
@@ -268,13 +268,14 @@ export interface CooperativeLibrary {
     created_at: string
     updated_at: string
     member_count?: number
-    book_count?: number
 }
+
+export type CooperativeLibrary = Library
 
 export interface LibraryMember {
     user_id: string
     library_id: string
-    username: string
+    username?: string
     is_owner: boolean
     can_view: boolean
     can_add: boolean

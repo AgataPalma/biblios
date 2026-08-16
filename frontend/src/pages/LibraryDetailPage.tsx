@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getLibrary, inviteMember, removeMember } from '../api/libraries'
+import { getLibrary, getLibraryMembers, inviteMember, removeMember } from '../api/libraries'
 import { getCollections, createCollection } from '../api/collections'
 import { useAuth } from '../context/AuthContext'
 import type { LibraryMember, Collection } from '../types'
@@ -35,6 +35,7 @@ function MembersTab({ members, libraryId, isOwner }: MembersTabProps) {
     const removeMutation = useMutation({
         mutationFn: (userId: string) => removeMember(libraryId, userId),
         onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['library-members', libraryId] })
             queryClient.invalidateQueries({ queryKey: ['library', libraryId] })
         },
     })
@@ -47,43 +48,32 @@ function MembersTab({ members, libraryId, isOwner }: MembersTabProps) {
         <div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <tbody>
-                    {members.map((member) => (
+                    {members.map((member) => {
+                        const username = member.username || 'Unknown member'
+                        return (
                         <tr
                             key={member.user_id}
                             style={{ borderBottom: '1px solid var(--color-border)' }}
                         >
                             {/* Avatar */}
                             <td style={{ padding: '12px 8px', width: '56px' }}>
-                                {member.avatar_url ? (
-                                    <img
-                                        src={member.avatar_url}
-                                        alt={member.username}
-                                        style={{
-                                            width: '40px',
-                                            height: '40px',
-                                            borderRadius: '50%',
-                                            objectFit: 'cover',
-                                        }}
-                                    />
-                                ) : (
-                                    <div
-                                        style={{
-                                            width: '40px',
-                                            height: '40px',
-                                            borderRadius: '50%',
-                                            background: 'var(--color-surface-alt)',
-                                            border: '1px solid var(--color-border)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontSize: '16px',
-                                            color: 'var(--color-text-muted)',
-                                            fontFamily: 'var(--font-body)',
-                                        }}
-                                    >
-                                        {member.username.charAt(0).toUpperCase()}
-                                    </div>
-                                )}
+                                <div
+                                    style={{
+                                        width: '40px',
+                                        height: '40px',
+                                        borderRadius: '50%',
+                                        background: 'var(--color-surface-alt)',
+                                        border: '1px solid var(--color-border)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '16px',
+                                        color: 'var(--color-text-muted)',
+                                        fontFamily: 'var(--font-body)',
+                                    }}
+                                >
+                                    {username.charAt(0).toUpperCase()}
+                                </div>
                             </td>
 
                             {/* Username */}
@@ -96,20 +86,20 @@ function MembersTab({ members, libraryId, isOwner }: MembersTabProps) {
                                     fontWeight: 500,
                                 }}
                             >
-                                {member.username}
+                                {username}
                             </td>
 
                             {/* Role badge */}
                             <td style={{ padding: '12px 8px' }}>
                                 <Badge
-                                    label={member.role}
-                                    variant={member.role === 'owner' ? 'info' : 'default'}
+                                    label={member.is_owner ? 'Owner' : 'Member'}
+                                    variant={member.is_owner ? 'info' : 'default'}
                                 />
                             </td>
 
                             {/* Remove button (owner only, not for self) */}
                             <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                                {isOwner && member.role !== 'owner' && (
+                                {isOwner && !member.is_owner && (
                                     <Button
                                         label="Remove"
                                         variant="danger"
@@ -119,7 +109,8 @@ function MembersTab({ members, libraryId, isOwner }: MembersTabProps) {
                                 )}
                             </td>
                         </tr>
-                    ))}
+                        )
+                    })}
                 </tbody>
             </table>
         </div>
@@ -430,6 +421,16 @@ export default function LibraryDetailPage() {
     })
 
     const {
+        data: membersData,
+        isLoading: membersLoading,
+        isError: membersError,
+    } = useQuery({
+        queryKey: ['library-members', id],
+        queryFn: () => getLibraryMembers(id!),
+        enabled: !!id && !!data?.owner_id,
+    })
+
+    const {
         data: collectionsData,
         isLoading: collectionsLoading,
         isError: collectionsError,
@@ -439,9 +440,12 @@ export default function LibraryDetailPage() {
         enabled: !!id,
     })
 
-    const isLoading = libraryLoading || collectionsLoading
-    const isError = libraryError || collectionsError
-    const isOwner = !!user && !!data && user.id === data.library.owner_id
+    const isLoading = libraryLoading || membersLoading || collectionsLoading
+    const isError = libraryError || membersError || collectionsError
+    const members = membersData ?? []
+    const currentMember = members.find(member => member.user_id === user?.id)
+    const isOwner = currentMember?.is_owner ?? false
+    const canInvite = currentMember?.can_invite ?? false
 
     if (isLoading) {
         return (
@@ -472,7 +476,7 @@ export default function LibraryDetailPage() {
         )
     }
 
-    const { library, members } = data
+    const library = data
     const collections = collectionsData ?? []
 
     return (
@@ -550,7 +554,7 @@ export default function LibraryDetailPage() {
                 </div>
 
                 {/* Invite Member button (owner only) */}
-                {isOwner && (
+                {canInvite && (
                     <Button
                         label="Invite Member"
                         onClick={() => setInviteModalOpen(true)}

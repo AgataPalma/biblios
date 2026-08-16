@@ -1,9 +1,7 @@
 import apiClient from './client'
 import type {
-    CooperativeLibrary,
+    Library,
     LibraryMember,
-    LibrariesResponse,
-    LibraryDetailResponse,
 } from '../types'
 
 export interface CreateLibraryPayload {
@@ -22,26 +20,37 @@ export interface UpdateMemberPayload {
     can_manage_members?: boolean
 }
 
-export async function getLibraries(): Promise<LibrariesResponse> {
-    const res = await apiClient.get<LibrariesResponse>('/libraries')
+export interface UpdateLibraryPayload {
+    name?: string
+    description?: string
+    visibility?: 'private' | 'semi_public' | 'public'
+}
+
+export async function getLibraries(): Promise<Library[]> {
+    const res = await apiClient.get<Library[]>('/libraries')
     return res.data
 }
 
-export async function getLibrary(id: string): Promise<LibraryDetailResponse> {
-    const res = await apiClient.get<LibraryDetailResponse>(`/libraries/${id}`)
+export async function getLibrary(id: string): Promise<Library> {
+    const res = await apiClient.get<Library>(`/libraries/${id}`)
     return res.data
 }
 
-export async function createLibrary(data: CreateLibraryPayload): Promise<CooperativeLibrary> {
-    const res = await apiClient.post<CooperativeLibrary>('/libraries', data)
+export async function getLibraryMembers(id: string): Promise<LibraryMember[]> {
+    const res = await apiClient.get<LibraryMember[]>(`/libraries/${id}/members`)
+    return res.data
+}
+
+export async function createLibrary(data: CreateLibraryPayload): Promise<Library> {
+    const res = await apiClient.post<Library>('/libraries', data)
     return res.data
 }
 
 export async function updateLibrary(
     id: string,
-    data: Partial<CreateLibraryPayload>,
-): Promise<CooperativeLibrary> {
-    const res = await apiClient.put<CooperativeLibrary>(`/libraries/${id}`, data)
+    data: UpdateLibraryPayload,
+): Promise<Library> {
+    const res = await apiClient.put<Library>(`/libraries/${id}`, data)
     return res.data
 }
 
@@ -61,12 +70,11 @@ export async function updateMember(
     libraryId: string,
     userId: string,
     permissions: UpdateMemberPayload,
-): Promise<LibraryMember> {
-    const res = await apiClient.put<LibraryMember>(
+): Promise<void> {
+    await apiClient.put(
         `/libraries/${libraryId}/members/${userId}`,
         permissions,
     )
-    return res.data
 }
 
 export async function removeMember(libraryId: string, userId: string): Promise<void> {
