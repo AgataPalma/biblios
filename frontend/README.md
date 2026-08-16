@@ -1,73 +1,112 @@
-# React + TypeScript + Vite
+# Biblios frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 and TypeScript single-page application for the Biblios catalogue,
+personal and cooperative libraries, reading activity, reviews, notifications,
+and moderation workflows.
 
-Currently, two official plugins are available:
+## API routing
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The browser uses the same-origin `/api/v1` base path by default. This avoids
+baking a developer machine's `localhost` into a deployed bundle.
 
-## React Compiler
+* In local Docker development, Vite proxies `/api` to `http://backend:8080`.
+* When Vite runs directly on the host, the default proxy target is
+  `http://localhost:8081`.
+* The production Nginx image proxies `/api` to the Compose backend service.
+* `VITE_API_URL` may override the browser-facing base with a root-relative path
+  or an absolute HTTPS URL. Plain HTTP, protocol-relative, malformed, and
+  credential-bearing values fail validation.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+See `.env.example` for the supported frontend variables. Never commit a real
+environment file or credentials.
 
-## Expanding the ESLint configuration
+## Local Docker development
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+From the repository root:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+docker compose up --build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The development image installs dependencies with `npm ci`. A named
+`frontend_node_modules` volume caches them. On every start, the entrypoint
+compares a fingerprint of `package.json` and `package-lock.json` with the
+installed volume and automatically reruns `npm ci` when they differ. Ordinary
+dependency changes therefore do not require deleting volumes manually.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+The application is available at `http://localhost:5173`. Check readiness with:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+docker compose ps
+docker compose logs --tail=100 frontend
 ```
+
+If the dependency volume itself is damaged, replace only the frontend
+dependency state; do not casually run `docker compose down -v`, because that
+can remove the PostgreSQL data volume.
+
+## Direct host development
+
+```bash
+npm ci
+npm run dev
+```
+
+Vite proxies `/api` to `http://localhost:8081` unless
+`VITE_API_PROXY_TARGET` is explicitly set.
+
+## Production frontend image
+
+The Dockerfile's `production` target performs a lockfile-reproducible build and
+copies only `dist/` plus Nginx configuration into the runtime image. The
+runtime:
+
+* does not contain Node, npm, Vite, source files, or `node_modules`;
+* runs Nginx as its unprivileged `nginx` user on port 8080;
+* serves SPA routes through `index.html` fallback;
+* serves hashed assets with immutable caching;
+* proxies `/api` to the backend service;
+* exposes `/healthz` and includes a container health check.
+
+Build it directly:
+
+```bash
+docker build --target production \
+  --build-arg VITE_API_URL=/api/v1 \
+  --build-arg APP_VERSION=0.1.0 \
+  --build-arg VCS_REF=<git-commit> \
+  --build-arg BUILD_DATE=<ISO-8601-date> \
+  --tag biblios-frontend:production \
+  frontend
+```
+
+Exercise the production frontend with the root Compose stack:
+
+```bash
+FRONTEND_PUBLIC_PORT=8080 docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.frontend-production.yml \
+  up --build frontend
+```
+
+Open `http://localhost:8080` and verify both `/healthz` and an authenticated API
+journey. The override removes development bind/dependency volumes, so the
+production container serves only immutable image contents.
+
+This frontend override does not certify the remaining services for production.
+TLS ingress, secrets, datastore isolation, backend image hardening,
+observability, backups, and deployment/rollback validation are tracked
+separately.
+
+## Quality checks
+
+```bash
+npm run lint
+npx tsc --noEmit
+npm test
+npm run build
+```
+
+All checks must run from a clean `npm ci` installation in CI. Production image
+validation must additionally inspect the configured user, health check, static
+SPA fallback, and `/api` proxy behavior.
