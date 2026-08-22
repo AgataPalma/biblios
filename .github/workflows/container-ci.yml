@@ -1,0 +1,88 @@
+name: Container CI
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "scripts/**"
+      - "docker-compose*.yml"
+      - ".github/workflows/container-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "scripts/**"
+      - "docker-compose*.yml"
+      - ".github/workflows/container-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  POSTGRES_DB: biblios_ci
+  POSTGRES_USER: biblios_ci
+  POSTGRES_PASSWORD: biblios-ci-postgres-only
+  REDIS_PASSWORD: biblios-ci-redis-only
+  PGADMIN_EMAIL: ci@biblios.dev
+  PGADMIN_PASSWORD: biblios-ci-pgadmin-only
+  JWT_SECRET: biblios-ci-jwt-secret-not-for-any-deployment
+  GOOGLE_BOOKS_API_KEY: ""
+
+jobs:
+  compose:
+    name: Build and health-check Compose topology
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Validate rendered Compose configuration
+        run: docker compose --profile tools config --quiet
+
+      - name: Build all Compose services
+        run: docker compose --profile tools build --pull
+
+      - name: Start isolated Compose topology
+        run: docker compose --profile tools up --detach
+
+      - name: Wait for service health and verify protected dependencies
+        run: |
+          for attempt in {1..60}; do
+            backend_ok=0
+            frontend_ok=0
+            pgadmin_ok=0
+            postgres_ok=0
+            redis_ok=0
+
+            curl --fail --silent http://127.0.0.1:8081/health >/dev/null && backend_ok=1 || true
+            curl --fail --silent http://127.0.0.1:5173/ >/dev/null && frontend_ok=1 || true
+            curl --fail --silent http://127.0.0.1:5050/ >/dev/null && pgadmin_ok=1 || true
+            docker compose exec --no-TTY postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null && postgres_ok=1 || true
+            docker compose exec --no-TTY redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping | grep -q PONG' && redis_ok=1 || true
+
+            if [ "$backend_ok" -eq 1 ] && [ "$frontend_ok" -eq 1 ] && [ "$pgadmin_ok" -eq 1 ] && [ "$postgres_ok" -eq 1 ] && [ "$redis_ok" -eq 1 ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker compose --profile tools ps --all
+          exit 1
+
+      - name: Show service diagnostics on failure
+        if: failure()
+        run: docker compose --profile tools ps --all && docker compose --profile tools logs --no-color
+
+      - name: Tear down isolated topology
+        if: always()
+        run: docker compose --profile tools down --volumes --remove-orphans
