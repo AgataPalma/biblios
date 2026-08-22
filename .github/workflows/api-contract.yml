@@ -68,11 +68,11 @@ jobs:
       - name: Run Postman health folder with pinned Newman
         run: |
           mkdir -p postman-cli-reports
-          docker run --rm --network container:biblios-backend-1 -v "$GITHUB_WORKSPACE:/workspace" -w /workspace node:24.19.0-alpine3.24 \
+          docker run --rm --network biblios_app -v "$GITHUB_WORKSPACE:/workspace" -w /workspace node:24.19.0-alpine3.24 \
             npx --yes newman@6.2.2 run biblios-api.postman_collection.json \
             --environment api-tests/postman/environments/ci.postman_environment.json \
-            --env-var baseUrl=http://127.0.0.1:8080/api/v1 \
-            --env-var healthUrl=http://127.0.0.1:8080/health \
+            --env-var baseUrl=http://backend:8080/api/v1 \
+            --env-var healthUrl=http://backend:8080/health \
             --folder "🏥 Health" \
             --bail \
             --reporters cli,junit,json \
