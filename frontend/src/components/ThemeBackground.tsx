@@ -873,7 +873,7 @@ export default function ThemeBackground() {
         if (themeId === 'post-apocalyptic' || themeId === 'woody') return ''
         const blob = new Blob([svgContent], { type: 'image/svg+xml' })
         return URL.createObjectURL(blob)
-    }, [svgContent])
+    }, [svgContent, themeId])
 
     if (themeId === 'post-apocalyptic') {
         return (
