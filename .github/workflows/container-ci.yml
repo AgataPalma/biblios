@@ -50,13 +50,13 @@ jobs:
           persist-credentials: false
 
       - name: Validate rendered Compose configuration
-        run: docker compose --profile tools config --quiet
+        run: docker compose -f docker-compose.yml --profile tools config --quiet
 
       - name: Build all Compose services
-        run: docker compose --profile tools build --pull
+        run: docker compose -f docker-compose.yml --profile tools build --pull
 
       - name: Start isolated Compose topology
-        run: docker compose --profile tools up --detach
+        run: docker compose -f docker-compose.yml --profile tools up --detach
 
       - name: Wait for service health and verify protected dependencies
         run: |
@@ -70,8 +70,8 @@ jobs:
             curl --fail --silent http://127.0.0.1:8081/health >/dev/null && backend_ok=1 || true
             curl --fail --silent http://127.0.0.1:5173/ >/dev/null && frontend_ok=1 || true
             curl --fail --silent http://127.0.0.1:5050/ >/dev/null && pgadmin_ok=1 || true
-            docker compose exec --no-TTY postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null && postgres_ok=1 || true
-            docker compose exec --no-TTY redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping | grep -q PONG' && redis_ok=1 || true
+            docker compose -f docker-compose.yml exec --no-TTY postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null && postgres_ok=1 || true
+            docker compose -f docker-compose.yml exec --no-TTY redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping | grep -q PONG' && redis_ok=1 || true
 
             if [ "$backend_ok" -eq 1 ] && [ "$frontend_ok" -eq 1 ] && [ "$pgadmin_ok" -eq 1 ] && [ "$postgres_ok" -eq 1 ] && [ "$redis_ok" -eq 1 ]; then
               exit 0
@@ -79,13 +79,13 @@ jobs:
             sleep 2
           done
 
-          docker compose --profile tools ps --all
+          docker compose -f docker-compose.yml --profile tools ps --all
           exit 1
 
       - name: Show service diagnostics on failure
         if: failure()
-        run: docker compose --profile tools ps --all && docker compose --profile tools logs --no-color
+        run: docker compose -f docker-compose.yml --profile tools ps --all && docker compose -f docker-compose.yml --profile tools logs --no-color
 
       - name: Tear down isolated topology
         if: always()
-        run: docker compose --profile tools down --volumes --remove-orphans
+        run: docker compose -f docker-compose.yml --profile tools down --volumes --remove-orphans
