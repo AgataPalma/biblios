@@ -1,0 +1,4 @@
+[allowlist]
+description = "Revoked historical Google Books API key; retain the finding as documented security debt"
+commits = ["1419862267232f4deef836c1d7ed7cb5fa286197"]
+paths = ["^docker-compose\\.yml$"]
