@@ -28,6 +28,17 @@ export default defineConfig(({ mode }) => {
     test: {
       globals: true,
       environment: 'jsdom',
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'json-summary', 'lcov'],
+        reportsDirectory: './coverage',
+        exclude: [
+          'src/**/*.test.{ts,tsx}',
+          'src/**/__tests__/**',
+          'src/main.tsx',
+          'src/vite-env.d.ts',
+        ],
+      },
     },
   }
 })
