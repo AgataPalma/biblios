@@ -57,7 +57,7 @@ jobs:
       - name: Wait for API health
         run: |
           for attempt in {1..60}; do
-            if curl --fail --silent http://127.0.0.1:8081/health; then
+            if docker compose -f docker-compose.yml exec --no-TTY backend wget -qO- http://127.0.0.1:8080/health >/dev/null; then
               exit 0
             fi
             sleep 2
@@ -68,8 +68,11 @@ jobs:
       - name: Run Postman health folder with pinned Newman
         run: |
           mkdir -p postman-cli-reports
-          npx --yes newman@6.2.2 run biblios-api.postman_collection.json \
+          docker run --rm --network container:biblios-backend-1 -v "$GITHUB_WORKSPACE:/workspace" -w /workspace node:24.19.0-alpine3.24 \
+            npx --yes newman@6.2.2 run biblios-api.postman_collection.json \
             --environment api-tests/postman/environments/ci.postman_environment.json \
+            --env-var baseUrl=http://127.0.0.1:8080/api/v1 \
+            --env-var healthUrl=http://127.0.0.1:8080/health \
             --folder "🏥 Health" \
             --bail \
             --reporters cli,junit,json \

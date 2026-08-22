@@ -68,9 +68,9 @@ jobs:
             postgres_ok=0
             redis_ok=0
 
-            curl --fail --silent http://127.0.0.1:8081/health >/dev/null && backend_ok=1 || true
-            curl --fail --silent http://127.0.0.1:5173/ >/dev/null && frontend_ok=1 || true
-            curl --fail --silent http://127.0.0.1:5050/ >/dev/null && pgadmin_ok=1 || true
+            docker compose -f docker-compose.yml exec --no-TTY backend wget -qO- http://127.0.0.1:8080/health >/dev/null && backend_ok=1 || true
+            docker compose -f docker-compose.yml exec --no-TTY frontend wget -qO- http://127.0.0.1:5173/ >/dev/null && frontend_ok=1 || true
+            docker compose -f docker-compose.yml exec --no-TTY pgadmin wget -qO- http://127.0.0.1/misc/ping >/dev/null && pgadmin_ok=1 || true
             docker compose -f docker-compose.yml exec --no-TTY postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null && postgres_ok=1 || true
             docker compose -f docker-compose.yml exec --no-TTY redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping | grep -q PONG' && redis_ok=1 || true
 
