@@ -1,0 +1,32 @@
+# Security boundary for future staging/production-style Compose validation.
+# This is not a complete deployment definition: an ingress/reverse proxy and
+# an external secret-delivery mechanism are still required before deployment.
+services:
+  config-check:
+    environment:
+      APP_ENV: ${APP_ENV:?Set APP_ENV to staging or production}
+
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+
+  redis:
+    ports: !reset []
+    restart: unless-stopped
+
+  pgadmin:
+    ports: !reset []
+    profiles: ["admin-tools"]
+
+  pgadmin-config-check:
+    profiles: ["admin-tools"]
+
+  backend:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:?Set APP_ENV to staging or production}
+
+  frontend:
+    ports: !reset []
+    restart: unless-stopped

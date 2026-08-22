@@ -37,7 +37,11 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
 	// ── Config ────────────────────────────────────────────────────────────────
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid runtime configuration", "error", err)
+		os.Exit(1)
+	}
 
 	// ── PostgreSQL ────────────────────────────────────────────────────────────
 	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
@@ -64,6 +68,7 @@ func main() {
 		slog.Error("failed to parse redis URL", "error", err)
 		os.Exit(1)
 	}
+	redisOpts.Password = cfg.RedisPassword
 	rdb := redis.NewClient(redisOpts)
 	defer rdb.Close()
 	if err = rdb.Ping(context.Background()).Err(); err != nil {
