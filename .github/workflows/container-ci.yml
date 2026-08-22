@@ -34,6 +34,9 @@ env:
   PGADMIN_PASSWORD: biblios-ci-pgadmin-only
   JWT_SECRET: biblios-ci-jwt-secret-not-for-any-deployment
   GOOGLE_BOOKS_API_KEY: ""
+  BACKEND_PORT: "8081"
+  FRONTEND_PORT: "5173"
+  PGADMIN_PORT: "5050"
 
 jobs:
   compose:
