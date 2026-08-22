@@ -26,6 +26,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  COMPOSE_FILE: docker-compose.yml
   POSTGRES_DB: biblios_ci
   POSTGRES_USER: biblios_ci
   POSTGRES_PASSWORD: biblios-ci-postgres-only
