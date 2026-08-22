@@ -38,6 +38,7 @@ jobs:
       POSTGRES_DB: biblios_ci
       POSTGRES_USER: biblios_ci
       POSTGRES_PASSWORD: biblios-ci-postgres-only
+      REDIS_PASSWORD: biblios-ci-redis-only
       PGADMIN_EMAIL: ci@example.invalid
       PGADMIN_PASSWORD: biblios-ci-pgadmin-only
       JWT_SECRET: biblios-ci-jwt-secret-not-for-any-deployment
