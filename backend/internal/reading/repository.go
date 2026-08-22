@@ -245,7 +245,7 @@ func (r *Repository) calculateStreaks(ctx context.Context, userID string) (curre
 	if dates[0].Truncate(24*time.Hour).Equal(today) || dates[0].Truncate(24*time.Hour).Equal(today.AddDate(0, 0, -1)) {
 		cur = 1
 		for i := 1; i < len(dates); i++ {
-			diff := dates[i-1].Truncate(24*time.Hour).Sub(dates[i].Truncate(24 * time.Hour))
+			diff := dates[i-1].Truncate(24 * time.Hour).Sub(dates[i].Truncate(24 * time.Hour))
 			if diff == 24*time.Hour {
 				cur++
 			} else {
@@ -258,7 +258,7 @@ func (r *Repository) calculateStreaks(ctx context.Context, userID string) (curre
 	lon := 1
 	run := 1
 	for i := 1; i < len(dates); i++ {
-		diff := dates[i-1].Truncate(24*time.Hour).Sub(dates[i].Truncate(24 * time.Hour))
+		diff := dates[i-1].Truncate(24 * time.Hour).Sub(dates[i].Truncate(24 * time.Hour))
 		if diff == 24*time.Hour {
 			run++
 			if run > lon {
