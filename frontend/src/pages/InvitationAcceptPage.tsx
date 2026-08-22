@@ -13,8 +13,6 @@ export default function InvitationAcceptPage() {
 
     useEffect(() => {
         if (!token) {
-            setErrorMessage('This invitation link is invalid or has expired.')
-            setStatus('error')
             return
         }
 
@@ -30,7 +28,12 @@ export default function InvitationAcceptPage() {
                 setErrorMessage(message)
                 setStatus('error')
             })
-    }, [token])
+        }, [token])
+
+    const effectiveStatus: Status = token ? status : 'error'
+    const effectiveErrorMessage = token
+        ? errorMessage
+        : 'This invitation link is invalid or has expired.'
 
     const containerStyle: React.CSSProperties = {
         display: 'flex',
@@ -71,7 +74,7 @@ export default function InvitationAcceptPage() {
         fontFamily: 'var(--font-body)',
     }
 
-    if (status === 'loading') {
+    if (effectiveStatus === 'loading') {
         return (
             <div style={containerStyle}>
                 <Spinner size="lg" label="Accepting invitation…" />
@@ -79,7 +82,7 @@ export default function InvitationAcceptPage() {
         )
     }
 
-    if (status === 'success') {
+    if (effectiveStatus === 'success') {
         return (
             <div style={containerStyle}>
                 <div style={cardStyle}>
@@ -97,7 +100,7 @@ export default function InvitationAcceptPage() {
             <div style={cardStyle}>
                 <span style={emojiStyle}>❌</span>
                 <h1 style={headingStyle}>Invitation failed</h1>
-                <p style={descStyle}>{errorMessage}</p>
+                <p style={descStyle}>{effectiveErrorMessage}</p>
                 <Button label="Go home" onClick={() => navigate('/')} variant="secondary" />
             </div>
         </div>
