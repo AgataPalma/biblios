@@ -22,12 +22,12 @@ The automated validator currently reports:
 | Registered operations represented by Postman | 89 of 89 |
 | Requests with an active post-response script | 107 of 107 |
 | Requests with an explicit status assertion | 107 of 107 |
-| OpenAPI operations | 28 |
-| Known OpenAPI gaps | 61 |
+| OpenAPI operations | 89 |
+| Known OpenAPI gaps | 0 |
 
 Endpoint representation means that a request exists for the method and path. It does not prove that every request has complete schema, authorization, privacy, lifecycle, and business-semantic assertions. BLIO-47 owns that deeper coverage classification.
 
-The OpenAPI gap is recorded explicitly in `api-tests/postman/openapi-gap-baseline.json`. The baseline is a temporary ratchet, not an acceptable final contract. CI prevents it from changing silently, and BLIO-43 must reduce it to zero.
+The OpenAPI gap baseline is now empty. CI continues to compare the reviewed baseline so any future route drift is explicit and cannot be introduced silently.
 
 ## Authoritative files
 
@@ -38,7 +38,7 @@ The OpenAPI gap is recorded explicitly in `api-tests/postman/openapi-gap-baselin
 | `biblios-api.postman_collection.json` | Executable requests and post-response tests |
 | `api-tests/postman/environments/local.postman_environment.json` | Non-production local template |
 | `api-tests/postman/environments/ci.postman_environment.json` | Empty CI template; runtime values must be injected |
-| `api-tests/postman/openapi-gap-baseline.json` | Reviewed, temporary list of missing OpenAPI operations |
+| `api-tests/postman/openapi-gap-baseline.json` | Reviewed ratchet; currently empty after BLIO-43 reconciliation |
 | `scripts/validate-api-contract.mjs` | Drift, safety, variable, and minimum-test validation |
 | `.github/workflows/api-contract.yml` | Pull-request and main-branch automation |
 
@@ -203,7 +203,7 @@ To prove whether OpenAPI is fully reconciled, run:
 node scripts/validate-api-contract.mjs --strict-openapi
 ```
 
-This strict command is expected to fail until the 61 known OpenAPI gaps are resolved.
+This strict command must pass. It verifies that every registered operation has a corresponding OpenAPI operation.
 
 ### Newman
 
@@ -306,7 +306,7 @@ The long-term target is 100% structural coverage and explicit applicable/not-app
 
 ## Known gaps
 
-- OpenAPI describes only 28 of 89 registered operations.
+- OpenAPI now describes all 89 registered operations. The newly reconciled operations are explicitly marked as requiring schema refinement under BLIO-47.
 - Sixty-one requests currently have status-only tests and require classification under BLIO-47.
 - Full-suite fixture orchestration is not deterministic.
 - Moderator and admin provisioning is manual outside the Health CI smoke path.
