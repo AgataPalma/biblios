@@ -1,0 +1,4 @@
+{
+  "description": "Reviewed OpenAPI drift ratchet. The list is empty after BLIO-43 reconciled all registered router operations; CI rejects any future unreviewed drift.",
+  "missingFromOpenApi": []
+}

@@ -1,0 +1,83 @@
+name: API contract and Postman checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-coverage:
+    name: Router, OpenAPI, and Postman drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Show Node.js version
+        run: node --version
+
+      - name: Validate contract coverage and collection safety
+        run: node scripts/validate-api-contract.mjs
+
+  postman-health-smoke:
+    name: Postman health smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      POSTGRES_DB: biblios_ci
+      POSTGRES_USER: biblios_ci
+      POSTGRES_PASSWORD: biblios-ci-postgres-only
+      REDIS_PASSWORD: biblios-ci-redis-only
+      PGADMIN_EMAIL: ci@example.invalid
+      PGADMIN_PASSWORD: biblios-ci-pgadmin-only
+      JWT_SECRET: biblios-ci-jwt-secret-not-for-any-deployment
+      GOOGLE_BOOKS_API_KEY: ""
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Start isolated API dependencies
+        run: docker compose up --detach --build postgres redis backend
+
+      - name: Wait for API health
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:8081/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+
+      - name: Run Postman health folder with pinned Newman
+        run: |
+          mkdir -p postman-cli-reports
+          npx --yes newman@6.2.2 run biblios-api.postman_collection.json \
+            --environment api-tests/postman/environments/ci.postman_environment.json \
+            --folder "🏥 Health" \
+            --bail \
+            --reporters cli,junit,json \
+            --reporter-junit-export postman-cli-reports/health-junit.xml \
+            --reporter-json-export postman-cli-reports/health.json
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs --no-color backend postgres redis
+
+      - name: Stop isolated services
+        if: always()
+        run: docker compose down --volumes --remove-orphans

@@ -1402,3 +1402,654 @@ paths:
                   status:
                     type: string
                     example: ok
+
+  # ─── ROUTE RECONCILIATION (BLIO-43) ────────────────────────────────────────
+
+  /books/{id}/reviews/me:
+    delete:
+      tags: [Books]
+      summary: Delete my review
+      operationId: deleteBookReview
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}:
+    delete:
+      tags: [Libraries]
+      summary: Delete library
+      operationId: deleteLibrary
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/books/{copyId}:
+    delete:
+      tags: [Libraries]
+      summary: Remove book from library
+      operationId: removeLibraryBook
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: copyId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/collections/{collectionId}:
+    delete:
+      tags: [Collections]
+      summary: Delete collection
+      operationId: deleteCollection
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: collectionId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/collections/{collectionId}/books/{copyId}:
+    delete:
+      tags: [Collections]
+      summary: Remove book from collection
+      operationId: removeCollectionBook
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: collectionId, in: path, required: true, schema: { type: string } }, { name: copyId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/members/{userId}:
+    delete:
+      tags: [Libraries]
+      summary: Remove library member
+      operationId: removeLibraryMember
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: userId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reading/challenges/{id}:
+    delete:
+      tags: [Reading]
+      summary: Delete reading challenge
+      operationId: deleteReadingChallenge
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reviews/{id}/like:
+    delete:
+      tags: [Reviews]
+      summary: Unlike review
+      operationId: unlikeReview
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /shelves/{id}:
+    delete:
+      tags: [Shelves]
+      summary: Delete shelf
+      operationId: deleteShelf
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /shelves/{id}/books/{copyId}:
+    delete:
+      tags: [Shelves]
+      summary: Remove book from shelf
+      operationId: removeShelfBook
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: copyId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /books/{id}/reviews:
+    get:
+      tags: [Reviews]
+      summary: List public book reviews
+      operationId: listBookReviews
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /books/{id}/reviews/me:
+    get:
+      tags: [Reviews]
+      summary: Get my book review
+      operationId: getMyBookReview
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /contributors:
+    get:
+      tags: [Contributors]
+      summary: List contributors
+      operationId: listContributors
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /contributors/{id}:
+    get:
+      tags: [Contributors]
+      summary: Get contributor
+      operationId: getContributor
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /genres:
+    get:
+      tags: [Genres]
+      summary: List genres
+      operationId: listGenres
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /invitations:
+    get:
+      tags: [Invitations]
+      summary: List my invitations
+      operationId: listInvitations
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries:
+    get:
+      tags: [Libraries]
+      summary: List my libraries
+      operationId: listLibraries
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/public:
+    get:
+      tags: [Libraries]
+      summary: List public libraries
+      operationId: listPublicLibraries
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}:
+    get:
+      tags: [Libraries]
+      summary: Get library
+      operationId: getLibrary
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/books:
+    get:
+      tags: [Libraries]
+      summary: List library books
+      operationId: listLibraryBooks
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/collections:
+    get:
+      tags: [Collections]
+      summary: List collections
+      operationId: listCollections
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/collections/{collectionId}:
+    get:
+      tags: [Collections]
+      summary: Get collection
+      operationId: getCollection
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: collectionId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/collections/{collectionId}/books:
+    get:
+      tags: [Collections]
+      summary: List collection books
+      operationId: listCollectionBooks
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: collectionId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/members:
+    get:
+      tags: [Libraries]
+      summary: List library members
+      operationId: listLibraryMembers
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /moderation/logs:
+    get:
+      tags: [Moderation]
+      summary: List moderation logs
+      operationId: listModerationLogs
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /moods:
+    get:
+      tags: [Genres]
+      summary: List moods
+      operationId: listMoods
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications
+      operationId: listNotifications
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reading/challenges:
+    get:
+      tags: [Reading]
+      summary: List reading challenges
+      operationId: listReadingChallenges
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reading/challenges/{id}/progress:
+    get:
+      tags: [Reading]
+      summary: Get challenge progress
+      operationId: getChallengeProgress
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reading/sessions:
+    get:
+      tags: [Reading]
+      summary: List reading sessions
+      operationId: listReadingSessions
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reading/stats:
+    get:
+      tags: [Reading]
+      summary: Get reading statistics
+      operationId: getReadingStats
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reading/stats/month/{year}/{month}:
+    get:
+      tags: [Reading]
+      summary: Get monthly reading statistics
+      operationId: getMonthlyReadingStats
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: year, in: path, required: true, schema: { type: string } }, { name: month, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reading/stats/year/{year}:
+    get:
+      tags: [Reading]
+      summary: Get yearly reading statistics
+      operationId: getYearlyReadingStats
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: year, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /series:
+    get:
+      tags: [Series]
+      summary: List series
+      operationId: listSeries
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /series/{id}:
+    get:
+      tags: [Series]
+      summary: Get series
+      operationId: getSeries
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /shelves:
+    get:
+      tags: [Shelves]
+      summary: List shelves
+      operationId: listShelves
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /shelves/{id}/books:
+    get:
+      tags: [Shelves]
+      summary: List shelf books
+      operationId: listShelfBooks
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /books/{id}/cover:
+    post:
+      tags: [Books]
+      summary: Upload book cover
+      operationId: uploadBookCover
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /books/{id}/reviews:
+    post:
+      tags: [Reviews]
+      summary: Create or update book review
+      operationId: upsertBookReview
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /contributors:
+    post:
+      tags: [Contributors]
+      summary: Create contributor
+      operationId: createContributor
+      security: [{ BearerAuth: [] }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /genres:
+    post:
+      tags: [Genres]
+      summary: Create genre
+      operationId: createGenre
+      security: [{ BearerAuth: [] }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /invitations/{token}/accept:
+    post:
+      tags: [Invitations]
+      summary: Accept invitation
+      operationId: acceptInvitation
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: token, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /invitations/{token}/decline:
+    post:
+      tags: [Invitations]
+      summary: Decline invitation
+      operationId: declineInvitation
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: token, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries:
+    post:
+      tags: [Libraries]
+      summary: Create library
+      operationId: createLibrary
+      security: [{ BearerAuth: [] }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/books:
+    post:
+      tags: [Libraries]
+      summary: Add book to library
+      operationId: addLibraryBook
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/collections:
+    post:
+      tags: [Collections]
+      summary: Create collection
+      operationId: createCollection
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/collections/{collectionId}/books:
+    post:
+      tags: [Collections]
+      summary: Add book to collection
+      operationId: addCollectionBook
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: collectionId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/invite:
+    post:
+      tags: [Libraries]
+      summary: Invite library member
+      operationId: inviteLibraryMember
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /moods:
+    post:
+      tags: [Genres]
+      summary: Create mood
+      operationId: createMood
+      security: [{ BearerAuth: [] }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reading/challenges:
+    post:
+      tags: [Reading]
+      summary: Create reading challenge
+      operationId: createReadingChallenge
+      security: [{ BearerAuth: [] }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reading/sessions:
+    post:
+      tags: [Reading]
+      summary: Log reading session
+      operationId: logReadingSession
+      security: [{ BearerAuth: [] }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /reviews/{id}/like:
+    post:
+      tags: [Reviews]
+      summary: Like review
+      operationId: likeReview
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /series:
+    post:
+      tags: [Series]
+      summary: Create series
+      operationId: createSeries
+      security: [{ BearerAuth: [] }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /shelves:
+    post:
+      tags: [Shelves]
+      summary: Create shelf
+      operationId: createShelf
+      security: [{ BearerAuth: [] }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /shelves/{id}/books:
+    post:
+      tags: [Shelves]
+      summary: Add book to shelf
+      operationId: addShelfBook
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}:
+    put:
+      tags: [Libraries]
+      summary: Update library
+      operationId: updateLibrary
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/collections/{collectionId}:
+    put:
+      tags: [Collections]
+      summary: Update collection
+      operationId: updateCollection
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: collectionId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /libraries/{id}/members/{userId}:
+    put:
+      tags: [Libraries]
+      summary: Update member permissions
+      operationId: updateMemberPermissions
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: userId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /notifications/read-all:
+    put:
+      tags: [Notifications]
+      summary: Mark all notifications read
+      operationId: markAllNotificationsRead
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /notifications/{id}/read:
+    put:
+      tags: [Notifications]
+      summary: Mark notification read
+      operationId: markNotificationRead
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema
+
+  /shelves/{id}:
+    put:
+      tags: [Shelves]
+      summary: Rename shelf
+      operationId: renameShelf
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Route response; detailed schema refinement tracked by BLIO-47 }
+      x-biblios-contract-status: route-reconciled-pending-schema

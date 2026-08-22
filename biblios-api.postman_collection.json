@@ -1,0 +1,1648 @@
+{
+  "info": {
+    "name": "Biblios API — Complete Test Suite",
+    "_postman_id": "biblios-api-v1",
+    "description": "Source-controlled executable test collection for the Biblios backend API.\n\nSetup:\n1. Import the matching local Postman environment.\n2. The default API URL is http://localhost:8081/api/v1 and the health URL is http://localhost:8081/health.\n3. Run Register User or Login before authenticated requests; successful authentication stores the token automatically.\n4. Moderator and admin requests require an explicitly provisioned non-production account.\n\nThe router, OpenAPI contract, and this collection are checked for drift in CI. Never store real credentials or tokens in this file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",    "value": "http://localhost:8081/api/v1" },
+    { "key": "healthUrl",  "value": "http://localhost:8081/health" },
+    { "key": "authToken",  "value": "" },
+    { "key": "modToken",   "value": "" },
+    { "key": "userId",     "value": "" },
+    { "key": "bookId",     "value": "" },
+    { "key": "editionId",  "value": "" },
+    { "key": "copyId",     "value": "" },
+    { "key": "libraryId",  "value": "" },
+    { "key": "collectionId", "value": "" },
+    { "key": "shelfId",    "value": "" },
+    { "key": "reviewId",   "value": "" },
+    { "key": "submissionId", "value": "" },
+    { "key": "challengeId", "value": "" },
+    { "key": "sessionId",  "value": "" },
+    { "key": "contributorId", "value": "" },
+    { "key": "seriesId",   "value": "" },
+    { "key": "invitationToken", "value": "" },
+    { "key": "notificationId", "value": "" },
+    { "key": "targetUserId", "value": "" }
+  ],
+  "item": [
+
+    {
+      "name": "🔐 Auth",
+      "item": [
+        {
+          "name": "Register User",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Register returns 201', () => pm.response.to.have.status(201));",
+            "if (pm.response.code === 201) {",
+            "  var json = pm.response.json();",
+            "  pm.collectionVariables.set('authToken', json.token);",
+            "  pm.collectionVariables.set('userId', json.user.id);",
+            "  pm.test('Token present', () => pm.expect(json.token).to.be.a('string'));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{testUserEmail}}\",\n  \"username\": \"{{testUsername}}\",\n  \"password\": \"{{testUserPassword}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth","register"] }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Login returns 200', () => pm.response.to.have.status(200));",
+            "if (pm.response.code === 200) {",
+            "  var json = pm.response.json();",
+            "  pm.collectionVariables.set('authToken', json.token);",
+            "  pm.collectionVariables.set('userId', json.user.id);",
+            "  pm.test('Token present', () => pm.expect(json.token).to.be.a('string'));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{testUserEmail}}\",\n  \"password\": \"{{testUserPassword}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth","login"] }
+          }
+        },
+        {
+          "name": "Login as Moderator",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Moderator login returns 200', () => pm.response.to.have.status(200));",
+            "if (pm.response.code === 200) {",
+            "  var json = pm.response.json();",
+            "  pm.collectionVariables.set('modToken', json.token);",
+            "  pm.test('Moderator token present', () => pm.expect(json.token).to.be.a('string'));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{moderatorEmail}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth","login"] }
+          }
+        },
+        {
+          "name": "Get Current User (me)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has id field', () => pm.expect(pm.response.json().id).to.be.a('string'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth","me"] }
+          }
+        },
+        {
+          "name": "Logout",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/auth/logout", "host": ["{{baseUrl}}"], "path": ["auth","logout"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "👤 Users",
+      "item": [
+        {
+          "name": "Update Profile",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Username updated', () => pm.expect(pm.response.json().username).to.eql('testuser_updated'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"testuser_updated\",\n  \"bio\": \"I love reading!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users","me"] }
+          }
+        },
+        {
+          "name": "Update Email",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{updatedUserEmail}}\",\n  \"current_password\": \"{{testUserPassword}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/users/me/email", "host": ["{{baseUrl}}"], "path": ["users","me","email"] }
+          }
+        },
+        {
+          "name": "Update Password",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"current_password\": \"{{testUserPassword}}\",\n  \"new_password\": \"{{updatedUserPassword}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/users/me/password", "host": ["{{baseUrl}}"], "path": ["users","me","password"] }
+          }
+        },
+        {
+          "name": "Update Theme",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"theme\": \"dark\"\n}" },
+            "url": { "raw": "{{baseUrl}}/users/me/theme", "host": ["{{baseUrl}}"], "path": ["users","me","theme"] }
+          }
+        },
+        {
+          "name": "Delete Account",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users","me"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📚 Books",
+      "item": [
+        {
+          "name": "List Books",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has books array', () => pm.expect(pm.response.json().books).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/books?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["books"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search Books",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/books?q=tolkien&page=1&limit=10",
+              "host": ["{{baseUrl}}"], "path": ["books"],
+              "query": [
+                { "key": "q", "value": "tolkien" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search Books with Filters",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/books?q=fantasy&format=paperback&language=en&page=1&limit=10",
+              "host": ["{{baseUrl}}"], "path": ["books"],
+              "query": [
+                { "key": "q", "value": "fantasy" },
+                { "key": "format", "value": "paperback" },
+                { "key": "language", "value": "en" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Lookup Book by ISBN",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has results', () => pm.expect(pm.response.json().results).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/books/lookup?isbn=9780261102354",
+              "host": ["{{baseUrl}}"], "path": ["books","lookup"],
+              "query": [{ "key": "isbn", "value": "9780261102354" }]
+            }
+          }
+        },
+        {
+          "name": "Check Duplicate ISBN",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has exists field', () => pm.expect(pm.response.json()).to.have.property('exists'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/books/check?isbn=9780261102354",
+              "host": ["{{baseUrl}}"], "path": ["books","check"],
+              "query": [{ "key": "isbn", "value": "9780261102354" }]
+            }
+          }
+        },
+        {
+          "name": "Submit Book (new submission)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "if (pm.response.code === 201) {",
+            "  var json = pm.response.json();",
+            "  pm.collectionVariables.set('bookId', json.book ? json.book.id : '');",
+            "  pm.collectionVariables.set('editionId', json.edition ? json.edition.id : '');",
+            "  pm.collectionVariables.set('submissionId', json.submission ? json.submission.id : '');",
+            "  pm.test('Returns 201', () => pm.response.to.have.status(201));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"The Lord of the Rings\",\n  \"authors\": [\"J.R.R. Tolkien\"],\n  \"genres\": [\"Fantasy\"],\n  \"edition\": {\n    \"format\": \"paperback\",\n    \"language\": \"en\",\n    \"isbn13\": \"9780261102354\",\n    \"publisher\": \"HarperCollins\",\n    \"published_year\": 1991\n  },\n  \"condition\": \"good\",\n  \"catalogue_only\": false,\n  \"reading_status\": \"want_to_read\"\n}" },
+            "url": { "raw": "{{baseUrl}}/books", "host": ["{{baseUrl}}"], "path": ["books"] }
+          }
+        },
+        {
+          "name": "Submit Book (catalogue only)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 201', () => pm.response.to.have.status(201));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Dune\",\n  \"authors\": [\"Frank Herbert\"],\n  \"genres\": [\"Science Fiction\"],\n  \"edition\": {\n    \"format\": \"hardcover\",\n    \"language\": \"en\",\n    \"isbn13\": \"9780441013593\",\n    \"publisher\": \"Ace Books\",\n    \"published_year\": 1965\n  },\n  \"catalogue_only\": true\n}" },
+            "url": { "raw": "{{baseUrl}}/books", "host": ["{{baseUrl}}"], "path": ["books"] }
+          }
+        },
+        {
+          "name": "Get Book by ID",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has title', () => pm.expect(pm.response.json().title).to.be.a('string'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/books/{{bookId}}", "host": ["{{baseUrl}}"], "path": ["books","{{bookId}}"] }
+          }
+        },
+        {
+          "name": "Get My Books",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has books array', () => pm.expect(pm.response.json().books).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/books?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["users","me","books"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get My Books (filtered by status)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/books?status=reading&page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["users","me","books"],
+              "query": [
+                { "key": "status", "value": "reading" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add Copy of Existing Edition",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "if (pm.response.code === 201) {",
+            "  var json = pm.response.json();",
+            "  if (json.copy) pm.collectionVariables.set('copyId', json.copy.id);",
+            "  pm.test('Returns 201', () => pm.response.to.have.status(201));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"edition_id\": \"{{editionId}}\",\n  \"condition\": \"good\",\n  \"reading_status\": \"want_to_read\",\n  \"owned_by_user\": true\n}" },
+            "url": { "raw": "{{baseUrl}}/books/copies", "host": ["{{baseUrl}}"], "path": ["books","copies"] }
+          }
+        },
+        {
+          "name": "Update Copy Status",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"reading\",\n  \"current_page\": 42\n}" },
+            "url": { "raw": "{{baseUrl}}/books/copies/{{copyId}}/status", "host": ["{{baseUrl}}"], "path": ["books","copies","{{copyId}}","status"] }
+          }
+        },
+        {
+          "name": "Remove Copy",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/books/copies/{{copyId}}", "host": ["{{baseUrl}}"], "path": ["books","copies","{{copyId}}"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🏛️ Libraries",
+      "item": [
+        {
+          "name": "List My Libraries",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Is array', () => pm.expect(pm.response.json()).to.be.an('array'));",
+            "var libs = pm.response.json();",
+            "if (libs.length > 0) pm.collectionVariables.set('libraryId', libs[0].id);"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/libraries", "host": ["{{baseUrl}}"], "path": ["libraries"] }
+          }
+        },
+        {
+          "name": "List Public Libraries",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has libraries array', () => pm.expect(pm.response.json().libraries).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/libraries/public?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["libraries","public"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Create Library",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "if (pm.response.code === 201) {",
+            "  pm.collectionVariables.set('libraryId', pm.response.json().id);",
+            "  pm.test('Returns 201', () => pm.response.to.have.status(201));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"My Test Library\",\n  \"description\": \"A library for testing\",\n  \"is_cooperative\": false,\n  \"visibility\": \"private\"\n}" },
+            "url": { "raw": "{{baseUrl}}/libraries", "host": ["{{baseUrl}}"], "path": ["libraries"] }
+          }
+        },
+        {
+          "name": "Get Library by ID",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has id', () => pm.expect(pm.response.json().id).to.be.a('string'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}"] }
+          }
+        },
+        {
+          "name": "Update Library",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"My Updated Library\",\n  \"description\": \"Updated description\",\n  \"visibility\": \"semi_public\"\n}" },
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}"] }
+          }
+        },
+        {
+          "name": "Get My Default Library (with books)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has books array', () => pm.expect(pm.response.json().books).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/library?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["users","me","library"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "List Library Books",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has books array', () => pm.expect(pm.response.json().books).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/libraries/{{libraryId}}/books?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","books"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Add Book Copy to Library",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 201', () => pm.response.to.have.status(201));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"copy_id\": \"{{copyId}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/books", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","books"] }
+          }
+        },
+        {
+          "name": "Remove Book Copy from Library",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/books/{{copyId}}", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","books","{{copyId}}"] }
+          }
+        },
+        {
+          "name": "List Library Members",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Is array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/members", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","members"] }
+          }
+        },
+        {
+          "name": "Update Member Permissions",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"can_view\": true,\n  \"can_add\": true,\n  \"can_remove\": false,\n  \"can_edit\": false,\n  \"can_invite\": false,\n  \"can_manage_members\": false\n}" },
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/members/{{targetUserId}}", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","members","{{targetUserId}}"] }
+          }
+        },
+        {
+          "name": "Remove Member from Library",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/members/{{targetUserId}}", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","members","{{targetUserId}}"] }
+          }
+        },
+        {
+          "name": "Invite Member to Library",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 201', () => pm.response.to.have.status(201));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{inviteeEmail}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/invite", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","invite"] }
+          }
+        },
+        {
+          "name": "Delete Library",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "✉️ Invitations",
+      "item": [
+        {
+          "name": "List My Invitations",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Is array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/invitations", "host": ["{{baseUrl}}"], "path": ["invitations"] }
+          }
+        },
+        {
+          "name": "Accept Invitation",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/invitations/{{invitationToken}}/accept", "host": ["{{baseUrl}}"], "path": ["invitations","{{invitationToken}}","accept"] }
+          }
+        },
+        {
+          "name": "Decline Invitation",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/invitations/{{invitationToken}}/decline", "host": ["{{baseUrl}}"], "path": ["invitations","{{invitationToken}}","decline"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📂 Collections",
+      "item": [
+        {
+          "name": "List Collections in Library",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Is array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/collections", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","collections"] }
+          }
+        },
+        {
+          "name": "Create Collection",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "if (pm.response.code === 201) {",
+            "  pm.collectionVariables.set('collectionId', pm.response.json().id);",
+            "  pm.test('Returns 201', () => pm.response.to.have.status(201));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Favourites\",\n  \"description\": \"My favourite books\"\n}" },
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/collections", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","collections"] }
+          }
+        },
+        {
+          "name": "Get Collection by ID",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/collections/{{collectionId}}", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","collections","{{collectionId}}"] }
+          }
+        },
+        {
+          "name": "Update Collection",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Top Picks\",\n  \"description\": \"Updated description\"\n}" },
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/collections/{{collectionId}}", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","collections","{{collectionId}}"] }
+          }
+        },
+        {
+          "name": "List Books in Collection",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has books array', () => pm.expect(pm.response.json().books).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/libraries/{{libraryId}}/collections/{{collectionId}}/books?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","collections","{{collectionId}}","books"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Add Book to Collection",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 201', () => pm.response.to.have.status(201));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"copy_id\": \"{{copyId}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/collections/{{collectionId}}/books", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","collections","{{collectionId}}","books"] }
+          }
+        },
+        {
+          "name": "Remove Book from Collection",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/collections/{{collectionId}}/books/{{copyId}}", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","collections","{{collectionId}}","books","{{copyId}}"] }
+          }
+        },
+        {
+          "name": "Delete Collection",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/libraries/{{libraryId}}/collections/{{collectionId}}", "host": ["{{baseUrl}}"], "path": ["libraries","{{libraryId}}","collections","{{collectionId}}"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "⭐ Reviews",
+      "item": [
+        {
+          "name": "List Public Reviews for Book",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "var json = pm.response.json();",
+            "if (json.reviews && json.reviews.length > 0) pm.collectionVariables.set('reviewId', json.reviews[0].id);"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/books/{{bookId}}/reviews?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["books","{{bookId}}","reviews"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Get My Review for Book",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/books/{{bookId}}/reviews/me", "host": ["{{baseUrl}}"], "path": ["books","{{bookId}}","reviews","me"] }
+          }
+        },
+        {
+          "name": "Create / Update Review",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "if (pm.response.json().id) pm.collectionVariables.set('reviewId', pm.response.json().id);"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"rating\": 4.5,\n  \"body\": \"An absolutely epic fantasy saga. Highly recommended!\",\n  \"is_public\": true\n}" },
+            "url": { "raw": "{{baseUrl}}/books/{{bookId}}/reviews", "host": ["{{baseUrl}}"], "path": ["books","{{bookId}}","reviews"] }
+          }
+        },
+        {
+          "name": "Like a Review",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reviews/{{reviewId}}/like", "host": ["{{baseUrl}}"], "path": ["reviews","{{reviewId}}","like"] }
+          }
+        },
+        {
+          "name": "Unlike a Review",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reviews/{{reviewId}}/like", "host": ["{{baseUrl}}"], "path": ["reviews","{{reviewId}}","like"] }
+          }
+        },
+        {
+          "name": "Delete My Review",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/books/{{bookId}}/reviews/me", "host": ["{{baseUrl}}"], "path": ["books","{{bookId}}","reviews","me"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔔 Notifications",
+      "item": [
+        {
+          "name": "List Notifications",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has notifications array', () => pm.expect(pm.response.json().notifications).to.be.an('array'));",
+            "var notifs = pm.response.json().notifications;",
+            "if (notifs && notifs.length > 0) pm.collectionVariables.set('notificationId', notifs[0].id);"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/notifications?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["notifications"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "List Notifications (unread only)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/notifications?read=false&page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["notifications"],
+              "query": [{ "key": "read", "value": "false" }, { "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Mark Notification as Read",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/notifications/{{notificationId}}/read", "host": ["{{baseUrl}}"], "path": ["notifications","{{notificationId}}","read"] }
+          }
+        },
+        {
+          "name": "Mark All Notifications as Read",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/notifications/read-all", "host": ["{{baseUrl}}"], "path": ["notifications","read-all"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📖 Reading",
+      "item": [
+        {
+          "name": "List Reading Challenges",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Is array', () => pm.expect(pm.response.json()).to.be.an('array'));",
+            "var challenges = pm.response.json();",
+            "if (challenges.length > 0) pm.collectionVariables.set('challengeId', challenges[0].id);"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reading/challenges", "host": ["{{baseUrl}}"], "path": ["reading","challenges"] }
+          }
+        },
+        {
+          "name": "Create Reading Challenge",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "if (pm.response.code === 201) {",
+            "  pm.collectionVariables.set('challengeId', pm.response.json().id);",
+            "  pm.test('Returns 201', () => pm.response.to.have.status(201));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"year\": 2026,\n  \"goal\": 24\n}" },
+            "url": { "raw": "{{baseUrl}}/reading/challenges", "host": ["{{baseUrl}}"], "path": ["reading","challenges"] }
+          }
+        },
+        {
+          "name": "Get Challenge Progress",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reading/challenges/{{challengeId}}/progress", "host": ["{{baseUrl}}"], "path": ["reading","challenges","{{challengeId}}","progress"] }
+          }
+        },
+        {
+          "name": "Delete Reading Challenge",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reading/challenges/{{challengeId}}", "host": ["{{baseUrl}}"], "path": ["reading","challenges","{{challengeId}}"] }
+          }
+        },
+        {
+          "name": "Log Reading Session",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "if (pm.response.code === 201) {",
+            "  pm.collectionVariables.set('sessionId', pm.response.json().id);",
+            "  pm.test('Returns 201', () => pm.response.to.have.status(201));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"copy_id\": \"{{copyId}}\",\n  \"pages_read\": 30,\n  \"duration_minutes\": 45,\n  \"notes\": \"Great chapter!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/reading/sessions", "host": ["{{baseUrl}}"], "path": ["reading","sessions"] }
+          }
+        },
+        {
+          "name": "List Reading Sessions",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has sessions array', () => pm.expect(pm.response.json().sessions).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/reading/sessions?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["reading","sessions"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "List Reading Sessions (filtered by copy)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/reading/sessions?copy_id={{copyId}}&page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["reading","sessions"],
+              "query": [{ "key": "copy_id", "value": "{{copyId}}" }, { "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Get Overall Reading Stats",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reading/stats", "host": ["{{baseUrl}}"], "path": ["reading","stats"] }
+          }
+        },
+        {
+          "name": "Get Year Reading Stats",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reading/stats/year/2026", "host": ["{{baseUrl}}"], "path": ["reading","stats","year","2026"] }
+          }
+        },
+        {
+          "name": "Get Month Reading Stats",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reading/stats/month/2026/4", "host": ["{{baseUrl}}"], "path": ["reading","stats","month","2026","4"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🗂️ Shelves",
+      "item": [
+        {
+          "name": "List My Shelves",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Is array', () => pm.expect(pm.response.json()).to.be.an('array'));",
+            "var shelves = pm.response.json();",
+            "if (shelves.length > 0) pm.collectionVariables.set('shelfId', shelves[0].id);"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/shelves", "host": ["{{baseUrl}}"], "path": ["shelves"] }
+          }
+        },
+        {
+          "name": "Create Shelf",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "if (pm.response.code === 201) {",
+            "  pm.collectionVariables.set('shelfId', pm.response.json().id);",
+            "  pm.test('Returns 201', () => pm.response.to.have.status(201));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"To Read Next\"\n}" },
+            "url": { "raw": "{{baseUrl}}/shelves", "host": ["{{baseUrl}}"], "path": ["shelves"] }
+          }
+        },
+        {
+          "name": "Rename Shelf",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Reading Queue\"\n}" },
+            "url": { "raw": "{{baseUrl}}/shelves/{{shelfId}}", "host": ["{{baseUrl}}"], "path": ["shelves","{{shelfId}}"] }
+          }
+        },
+        {
+          "name": "List Books on Shelf",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has books array', () => pm.expect(pm.response.json().books).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/shelves/{{shelfId}}/books?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["shelves","{{shelfId}}","books"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Add Book to Shelf",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 201', () => pm.response.to.have.status(201));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"copy_id\": \"{{copyId}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/shelves/{{shelfId}}/books", "host": ["{{baseUrl}}"], "path": ["shelves","{{shelfId}}","books"] }
+          }
+        },
+        {
+          "name": "Remove Book from Shelf",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/shelves/{{shelfId}}/books/{{copyId}}", "host": ["{{baseUrl}}"], "path": ["shelves","{{shelfId}}","books","{{copyId}}"] }
+          }
+        },
+        {
+          "name": "Delete Shelf",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/shelves/{{shelfId}}", "host": ["{{baseUrl}}"], "path": ["shelves","{{shelfId}}"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "✍️ Contributors",
+      "item": [
+        {
+          "name": "List Contributors",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has contributors array', () => pm.expect(pm.response.json().contributors).to.be.an('array'));",
+            "var contribs = pm.response.json().contributors;",
+            "if (contribs && contribs.length > 0) pm.collectionVariables.set('contributorId', contribs[0].id);"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/contributors?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["contributors"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Search Contributors",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/contributors?q=tolkien&page=1&limit=10",
+              "host": ["{{baseUrl}}"], "path": ["contributors"],
+              "query": [{ "key": "q", "value": "tolkien" }, { "key": "page", "value": "1" }, { "key": "limit", "value": "10" }]
+            }
+          }
+        },
+        {
+          "name": "Get Contributor by ID",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/contributors/{{contributorId}}", "host": ["{{baseUrl}}"], "path": ["contributors","{{contributorId}}"] }
+          }
+        },
+        {
+          "name": "Create Contributor",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "if (pm.response.code === 201) {",
+            "  pm.collectionVariables.set('contributorId', pm.response.json().id);",
+            "  pm.test('Returns 201', () => pm.response.to.have.status(201));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"George R.R. Martin\",\n  \"bio\": \"American novelist and short story writer\"\n}" },
+            "url": { "raw": "{{baseUrl}}/contributors", "host": ["{{baseUrl}}"], "path": ["contributors"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📚 Series",
+      "item": [
+        {
+          "name": "List Series",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has series array', () => pm.expect(pm.response.json().series).to.be.an('array'));",
+            "var series = pm.response.json().series;",
+            "if (series && series.length > 0) pm.collectionVariables.set('seriesId', series[0].id);"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/series?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["series"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Search Series",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/series?q=rings&page=1&limit=10",
+              "host": ["{{baseUrl}}"], "path": ["series"],
+              "query": [{ "key": "q", "value": "rings" }, { "key": "page", "value": "1" }, { "key": "limit", "value": "10" }]
+            }
+          }
+        },
+        {
+          "name": "Get Series by ID",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/series/{{seriesId}}", "host": ["{{baseUrl}}"], "path": ["series","{{seriesId}}"] }
+          }
+        },
+        {
+          "name": "Create Series",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "if (pm.response.code === 201) {",
+            "  pm.collectionVariables.set('seriesId', pm.response.json().id);",
+            "  pm.test('Returns 201', () => pm.response.to.have.status(201));",
+            "}"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"A Song of Ice and Fire\",\n  \"description\": \"Epic fantasy series by George R.R. Martin\"\n}" },
+            "url": { "raw": "{{baseUrl}}/series", "host": ["{{baseUrl}}"], "path": ["series"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🏷️ Genres & Moods",
+      "item": [
+        {
+          "name": "List Genres",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Is array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/genres", "host": ["{{baseUrl}}"], "path": ["genres"] }
+          }
+        },
+        {
+          "name": "Create Genre (moderator)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 201', () => pm.response.to.have.status(201));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{modToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Grimdark\"\n}" },
+            "url": { "raw": "{{baseUrl}}/genres", "host": ["{{baseUrl}}"], "path": ["genres"] }
+          }
+        },
+        {
+          "name": "List Moods",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Is array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/moods", "host": ["{{baseUrl}}"], "path": ["moods"] }
+          }
+        },
+        {
+          "name": "Create Mood (moderator)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 201', () => pm.response.to.have.status(201));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{modToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Dark & Gritty\"\n}" },
+            "url": { "raw": "{{baseUrl}}/moods", "host": ["{{baseUrl}}"], "path": ["moods"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🛡️ Moderation (moderator/admin only)",
+      "item": [
+        {
+          "name": "List Pending Submissions",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has submissions array', () => pm.expect(pm.response.json().submissions).to.be.an('array'));",
+            "var subs = pm.response.json().submissions;",
+            "if (subs && subs.length > 0) pm.collectionVariables.set('submissionId', subs[0].id);"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{modToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/moderation/submissions?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["moderation","submissions"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Get Submission by ID",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{modToken}}" }],
+            "url": { "raw": "{{baseUrl}}/moderation/submissions/{{submissionId}}", "host": ["{{baseUrl}}"], "path": ["moderation","submissions","{{submissionId}}"] }
+          }
+        },
+        {
+          "name": "Approve Submission",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Message is approved', () => pm.expect(pm.response.json().message).to.include('approved'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{modToken}}" }],
+            "url": { "raw": "{{baseUrl}}/moderation/submissions/{{submissionId}}/approve", "host": ["{{baseUrl}}"], "path": ["moderation","submissions","{{submissionId}}","approve"] }
+          }
+        },
+        {
+          "name": "Reject Submission",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Message is rejected', () => pm.expect(pm.response.json().message).to.include('rejected'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{modToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Duplicate entry — this edition already exists in the catalogue.\"\n}" },
+            "url": { "raw": "{{baseUrl}}/moderation/submissions/{{submissionId}}/reject", "host": ["{{baseUrl}}"], "path": ["moderation","submissions","{{submissionId}}","reject"] }
+          }
+        },
+        {
+          "name": "Edit and Approve Submission",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{modToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"The Lord of the Rings (Corrected)\",\n  \"description\": \"The definitive edition of Tolkien's masterwork.\",\n  \"authors\": [\"J.R.R. Tolkien\"]\n}" },
+            "url": { "raw": "{{baseUrl}}/moderation/submissions/{{submissionId}}/edit", "host": ["{{baseUrl}}"], "path": ["moderation","submissions","{{submissionId}}","edit"] }
+          }
+        },
+        {
+          "name": "List Moderation Logs",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has logs array', () => pm.expect(pm.response.json().logs).to.be.an('array'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{modToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/moderation/logs?page=1&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["moderation","logs"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔧 Admin",
+      "item": [
+        {
+          "name": "Update Book (moderator)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{modToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"The Lord of the Rings\",\n  \"description\": \"An epic high-fantasy novel by J.R.R. Tolkien.\",\n  \"authors\": [\"J.R.R. Tolkien\"],\n  \"genres\": [\"Fantasy\"],\n  \"edition_id\": \"{{editionId}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/books/{{bookId}}", "host": ["{{baseUrl}}"], "path": ["books","{{bookId}}"] }
+          }
+        },
+        {
+          "name": "Upload Book Cover (moderator)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has cover_url', () => pm.expect(pm.response.json().cover_url).to.be.a('string'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{modToken}}" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [{ "key": "cover", "type": "file", "src": "/path/to/cover.jpg", "description": "JPEG/PNG/WebP image file" }]
+            },
+            "url": { "raw": "{{baseUrl}}/books/{{editionId}}/cover", "host": ["{{baseUrl}}"], "path": ["books","{{editionId}}","cover"] }
+          }
+        },
+        {
+          "name": "Delete Book (moderator)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{modToken}}" }],
+            "url": { "raw": "{{baseUrl}}/books/{{bookId}}", "host": ["{{baseUrl}}"], "path": ["books","{{bookId}}"] }
+          }
+        },
+        {
+          "name": "Backfill Covers (admin only)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has total field', () => pm.expect(pm.response.json().total).to.be.a('number'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{modToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/backfill-covers", "host": ["{{baseUrl}}"], "path": ["admin","backfill-covers"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🏥 Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 200', () => pm.response.to.have.status(200));",
+            "pm.test('Status is ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "url": "{{healthUrl}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "❌ Error Cases",
+      "item": [
+        {
+          "name": "Register - Duplicate Email",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 409 Conflict', () => pm.response.to.have.status(409));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{testUserEmail}}\",\n  \"username\": \"{{duplicateUsername}}\",\n  \"password\": \"{{testUserPassword}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth","register"] }
+          }
+        },
+        {
+          "name": "Login - Wrong Password",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 401 Unauthorized', () => pm.response.to.have.status(401));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{testUserEmail}}\",\n  \"password\": \"{{invalidPassword}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth","login"] }
+          }
+        },
+        {
+          "name": "Get Book - Not Found",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 404 Not Found', () => pm.response.to.have.status(404));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/books/00000000-0000-0000-0000-000000000000", "host": ["{{baseUrl}}"], "path": ["books","00000000-0000-0000-0000-000000000000"] }
+          }
+        },
+        {
+          "name": "Submit Book - Missing Title",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 422 Unprocessable', () => pm.response.to.have.status(422));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"authors\": [\"Someone\"],\n  \"edition\": { \"format\": \"paperback\", \"language\": \"en\" }\n}" },
+            "url": { "raw": "{{baseUrl}}/books", "host": ["{{baseUrl}}"], "path": ["books"] }
+          }
+        },
+        {
+          "name": "Submit Book - Missing Authors",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 422 Unprocessable', () => pm.response.to.have.status(422));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"A Book\",\n  \"authors\": [],\n  \"edition\": { \"format\": \"paperback\", \"language\": \"en\" }\n}" },
+            "url": { "raw": "{{baseUrl}}/books", "host": ["{{baseUrl}}"], "path": ["books"] }
+          }
+        },
+        {
+          "name": "Review - Invalid Rating",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 422 Unprocessable', () => pm.response.to.have.status(422));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"rating\": 6.0,\n  \"body\": \"Too good!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/books/{{bookId}}/reviews", "host": ["{{baseUrl}}"], "path": ["books","{{bookId}}","reviews"] }
+          }
+        },
+        {
+          "name": "Unauthenticated Request",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 401 Unauthorized', () => pm.response.to.have.status(401));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/libraries", "host": ["{{baseUrl}}"], "path": ["libraries"] }
+          }
+        },
+        {
+          "name": "Moderator Endpoint as Regular User",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 403 Forbidden', () => pm.response.to.have.status(403));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/moderation/submissions", "host": ["{{baseUrl}}"], "path": ["moderation","submissions"] }
+          }
+        },
+        {
+          "name": "Check Duplicate - Missing ISBN Param",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Returns 400 Bad Request', () => pm.response.to.have.status(400));"
+          ], "type": "text/javascript" }}],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": { "raw": "{{baseUrl}}/books/check", "host": ["{{baseUrl}}"], "path": ["books","check"] }
+          }
+        }
+      ]
+    }
+  ]
+}
