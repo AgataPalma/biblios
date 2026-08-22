@@ -1263,3 +1263,56 @@ var _ pgconn.CommandTag
 func (r *Repository) WithDB(db DB) *txRepository {
 	return &txRepository{db: db}
 }
+
+// FindSubmissionForUpdate loads a submission while holding its row lock until
+// the surrounding transaction commits or rolls back. Moderation decisions use
+// this to serialize competing approve/reject requests.
+func (r *txRepository) FindSubmissionForUpdate(ctx context.Context, id string) (*Submission, error) {
+	var s Submission
+	err := r.db.QueryRow(ctx, `
+		SELECT id, submitted_by, status, catalogue_only, rejection_reason, reviewed_by,
+		       reviewed_at, book_id, edition_id, copy_id, contributor_id, deleted_at, created_at, updated_at
+		FROM submissions
+		WHERE id=$1 AND deleted_at IS NULL
+		FOR UPDATE`, id).Scan(
+		&s.ID, &s.SubmittedBy, &s.Status, &s.CatalogueOnly, &s.RejectionReason,
+		&s.ReviewedBy, &s.ReviewedAt, &s.BookID, &s.EditionID, &s.CopyID, &s.ContributorID,
+		&s.DeletedAt, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find submission for update: %w", err)
+	}
+	return &s, nil
+}
+
+func (r *txRepository) ApproveBookEntities(ctx context.Context, bookID, editionID string) error {
+	if _, err := r.db.Exec(ctx, `UPDATE books SET status='approved', updated_at=NOW() WHERE id=$1`, bookID); err != nil {
+		return fmt.Errorf("approve book: %w", err)
+	}
+	if _, err := r.db.Exec(ctx, `UPDATE book_editions SET status='approved', updated_at=NOW() WHERE id=$1`, editionID); err != nil {
+		return fmt.Errorf("approve edition: %w", err)
+	}
+	if _, err := r.db.Exec(ctx, `UPDATE contributors SET status='approved', updated_at=NOW() WHERE id IN (SELECT contributor_id FROM book_contributors WHERE book_id=$1) AND status='pending'`, bookID); err != nil {
+		return fmt.Errorf("approve book contributors: %w", err)
+	}
+	if _, err := r.db.Exec(ctx, `UPDATE contributors SET status='approved', updated_at=NOW() WHERE id IN (SELECT contributor_id FROM edition_contributors WHERE edition_id=$1) AND status='pending'`, editionID); err != nil {
+		return fmt.Errorf("approve edition contributors: %w", err)
+	}
+	if _, err := r.db.Exec(ctx, `UPDATE genres SET status='approved' WHERE id IN (SELECT genre_id FROM book_genres WHERE book_id=$1) AND status='pending'`, bookID); err != nil {
+		return fmt.Errorf("approve genres: %w", err)
+	}
+	return nil
+}
+
+func (r *txRepository) InsertModerationLog(ctx context.Context, moderatorID, entityType, entityID, action string, before, after any) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO moderation_log (moderator_id, entity_type, entity_id, action, before, after)
+		VALUES ($1, $2, $3, $4, $5, $6)`, moderatorID, entityType, entityID, action, before, after)
+	if err != nil {
+		return fmt.Errorf("insert moderation log: %w", err)
+	}
+	return nil
+}

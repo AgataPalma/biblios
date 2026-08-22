@@ -56,7 +56,13 @@ func (s *Service) GetSubmission(ctx context.Context, id string) (*books.Submissi
 //  3. Marks the submission approved.
 //  4. Writes a moderation log entry.
 func (s *Service) Approve(ctx context.Context, submissionID, moderatorID string) error {
-	sub, err := s.repo.FindSubmissionByID(ctx, submissionID)
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	txRepo := s.repo.WithDB(tx)
+	sub, err := txRepo.FindSubmissionForUpdate(ctx, submissionID)
 	if err != nil {
 		return err
 	}
@@ -72,20 +78,13 @@ func (s *Service) Approve(ctx context.Context, submissionID, moderatorID string)
 
 	// Approve book/edition entities
 	if sub.BookID != nil && sub.EditionID != nil {
-		if err := s.repo.ApproveBookEntities(ctx, *sub.BookID, *sub.EditionID); err != nil {
+		if err := txRepo.ApproveBookEntities(ctx, *sub.BookID, *sub.EditionID); err != nil {
 			return fmt.Errorf("approve entities: %w", err)
 		}
 	}
 
 	// If no copy exists yet and not catalogue_only, create one now
 	if !sub.CatalogueOnly && sub.CopyID == nil && sub.EditionID != nil {
-		tx, err := s.db.Begin(ctx)
-		if err != nil {
-			return fmt.Errorf("begin tx: %w", err)
-		}
-		defer func() { _ = tx.Rollback(ctx) }()
-
-		txRepo := s.repo.WithDB(tx)
 		copy, err := txRepo.InsertCopy(ctx, *sub.EditionID, sub.SubmittedBy, nil, books.CopyOptions{})
 		if err != nil {
 			return fmt.Errorf("create copy on approve: %w", err)
@@ -118,31 +117,46 @@ func (s *Service) Approve(ctx context.Context, submissionID, moderatorID string)
 			return fmt.Errorf("update submission: %w", err)
 		}
 
-		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("commit tx: %w", err)
-		}
 	} else {
-		if err := s.repo.ApproveSubmission(ctx, submissionID, moderatorID); err != nil {
-			return err
+		if _, err := tx.Exec(ctx, `UPDATE submissions SET status='approved', reviewed_by=$2, reviewed_at=NOW(), updated_at=NOW() WHERE id=$1 AND status='pending'`, submissionID, moderatorID); err != nil {
+			return fmt.Errorf("approve submission: %w", err)
 		}
 	}
 
-	// Reload for after snapshot
-	after, _ := s.repo.FindSubmissionByID(ctx, submissionID)
+	// Reload while still inside the transaction so the audit snapshot and state
+	// change commit together.
+	after, err := txRepo.FindSubmissionForUpdate(ctx, submissionID)
+	if err != nil {
+		return err
+	}
 	afterJSON, _ := json.Marshal(after)
 
 	entityID := submissionID
 	if sub.BookID != nil {
 		entityID = *sub.BookID
 	}
-	_ = s.repo.InsertModerationLog(ctx, moderatorID, "submission", entityID, "approved", beforeJSON, afterJSON)
+	if err := txRepo.InsertModerationLog(ctx, moderatorID, "submission", entityID, "approved", beforeJSON, afterJSON); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
 
 	return nil
 }
 
 // Reject rejects a submission, soft-deletes the copy if one exists, and logs the action.
 func (s *Service) Reject(ctx context.Context, submissionID, moderatorID, reason string) error {
-	sub, err := s.repo.FindSubmissionByID(ctx, submissionID)
+	if reason == "" {
+		return fmt.Errorf("rejection reason is required")
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	txRepo := s.repo.WithDB(tx)
+	sub, err := txRepo.FindSubmissionForUpdate(ctx, submissionID)
 	if err != nil {
 		return err
 	}
@@ -152,17 +166,8 @@ func (s *Service) Reject(ctx context.Context, submissionID, moderatorID, reason 
 	if sub.Status != "pending" {
 		return fmt.Errorf("submission is not pending")
 	}
-	if reason == "" {
-		return fmt.Errorf("rejection reason is required")
-	}
 
 	beforeJSON, _ := json.Marshal(sub)
-
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Soft-delete the copy if it exists
 	if sub.CopyID != nil {
@@ -179,18 +184,22 @@ func (s *Service) Reject(ctx context.Context, submissionID, moderatorID, reason 
 		return fmt.Errorf("reject submission: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit tx: %w", err)
+	after, err := txRepo.FindSubmissionForUpdate(ctx, submissionID)
+	if err != nil {
+		return err
 	}
-
-	after, _ := s.repo.FindSubmissionByID(ctx, submissionID)
 	afterJSON, _ := json.Marshal(after)
 
 	entityID := submissionID
 	if sub.BookID != nil {
 		entityID = *sub.BookID
 	}
-	_ = s.repo.InsertModerationLog(ctx, moderatorID, "submission", entityID, "rejected", beforeJSON, afterJSON)
+	if err := txRepo.InsertModerationLog(ctx, moderatorID, "submission", entityID, "rejected", beforeJSON, afterJSON); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
 
 	return nil
 }
